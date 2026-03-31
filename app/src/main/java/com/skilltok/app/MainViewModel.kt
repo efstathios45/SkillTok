@@ -1,6 +1,7 @@
 package com.skilltok.app
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
@@ -9,10 +10,18 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+sealed class EnrollmentState {
+    object Idle : EnrollmentState()
+    object Loading : EnrollmentState()
+    data class Success(val courseId: String) : EnrollmentState()
+    data class Error(val message: String) : EnrollmentState()
+}
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FirebaseRepository()
     private val auth = FirebaseAuth.getInstance()
     private val db = SkillTokDatabase.getDatabase(application).dao()
+    private val prefs = application.getSharedPreferences("skilltok_prefs", Context.MODE_PRIVATE)
 
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
@@ -22,6 +31,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _enrollments = MutableStateFlow<List<Enrollment>>(emptyList())
     val enrollments: StateFlow<List<Enrollment>> = _enrollments.asStateFlow()
+
+    private val _enrollmentState = MutableStateFlow<EnrollmentState>(EnrollmentState.Idle)
+    val enrollmentState: StateFlow<EnrollmentState> = _enrollmentState.asStateFlow()
+
+    private val _isDarkMode = MutableStateFlow(prefs.getBoolean("dark_mode", true))
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -38,24 +53,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         observeCourses()
     }
 
+    fun toggleTheme(darkMode: Boolean) {
+        _isDarkMode.value = darkMode
+        prefs.edit().putBoolean("dark_mode", darkMode).apply()
+    }
+
     private fun observeUser(uid: String) {
-        // First, try local DB
         viewModelScope.launch {
             db.getUserProfile(uid).collect { localUser ->
                 if (localUser != null) {
+                    val current = _currentUser.value
                     _currentUser.value = User(
                         id = localUser.id,
                         name = localUser.name,
                         email = localUser.email,
                         xp = localUser.xp,
                         streak = localUser.streak,
-                        level = localUser.level
+                        level = localUser.level,
+                        interests = current?.interests ?: emptyList(),
+                        goals = current?.goals ?: emptyList(),
+                        onboardingCompleted = current?.onboardingCompleted ?: false
                     )
                 }
             }
         }
 
-        // Then, observe Firebase and update local
         viewModelScope.launch {
             repository.getUserProfile(uid).collect { remoteUser ->
                 if (remoteUser != null) {
@@ -65,8 +87,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         remoteUser.xp, remoteUser.streak, remoteUser.level
                     ))
                 } else {
-                    // Fallback to Mock if new user
-                    val fallback = MockData.currentUser.copy(id = uid, email = auth.currentUser?.email ?: "")
+                    val fallback = User(id = uid, email = auth.currentUser?.email ?: "", name = auth.currentUser?.displayName ?: "New Learner")
                     _currentUser.value = fallback
                 }
             }
@@ -83,9 +104,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun completeOnboarding(interests: List<String>, goals: List<String>) {
+        val user = _currentUser.value ?: return
+        val updatedUser = user.copy(
+            interests = interests,
+            goals = goals,
+            onboardingCompleted = true
+        )
+        _currentUser.value = updatedUser
+        
+        viewModelScope.launch {
+            repository.updateUserProfile(updatedUser)
+            db.insertUserProfile(LocalUserEntity(
+                updatedUser.id, updatedUser.name, updatedUser.email,
+                updatedUser.xp, updatedUser.streak, updatedUser.level
+            ))
+        }
+    }
+
     private fun syncLocalData(uid: String) {
         viewModelScope.launch {
-            // Sync Enrollments
             repository.getEnrollments(uid).collect { remoteEnrollments ->
                 _enrollments.value = remoteEnrollments
                 remoteEnrollments.forEach { e ->
@@ -95,7 +133,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             
-            // Sync offline completions to Firebase
             val unsynced = db.getUnsyncedCompletions()
             unsynced.forEach { c ->
                 repository.completeLesson(c.userId, c.lessonId)
@@ -108,13 +145,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         auth.signOut()
     }
 
-    fun enrollInCourse(courseId: String, firstLessonId: String) {
-        val uid = auth.currentUser?.uid ?: return
+    fun resetEnrollmentState() {
+        _enrollmentState.value = EnrollmentState.Idle
+    }
+
+    fun enrollInCourse(courseId: String, startLessonId: String? = null) {
+        val uid = auth.currentUser?.uid ?: run {
+            _enrollmentState.value = EnrollmentState.Error("Please log in to enroll")
+            return
+        }
+        
         viewModelScope.launch {
-            repository.enrollInCourse(uid, courseId, firstLessonId)
-            db.insertEnrollment(LocalEnrollmentEntity(
-                "${uid}_$courseId", uid, courseId, "in_progress", 0, firstLessonId
-            ))
+            _enrollmentState.value = EnrollmentState.Loading
+            try {
+                val finalLessonId = if (startLessonId != null) {
+                    startLessonId
+                } else {
+                    // dynamically find the first lesson
+                    val modules = getCourseModules(courseId).first()
+                    val firstModuleId = modules.firstOrNull()?.id
+                    if (firstModuleId != null) {
+                        getModuleLessons(firstModuleId).first().firstOrNull()?.id
+                    } else null
+                }
+
+                if (finalLessonId == null) {
+                    _enrollmentState.value = EnrollmentState.Error("This course doesn't have any lessons yet")
+                    return@launch
+                }
+
+                repository.enrollInCourse(uid, courseId, finalLessonId)
+                
+                // Optimistic local update
+                db.insertEnrollment(LocalEnrollmentEntity(
+                    "${uid}_$courseId", uid, courseId, "in_progress", 0, finalLessonId
+                ))
+                
+                // Refresh enrollment list
+                val updatedEnrollments = repository.getEnrollments(uid).first()
+                _enrollments.value = updatedEnrollments
+                
+                _enrollmentState.value = EnrollmentState.Success(courseId)
+            } catch (e: Exception) {
+                _enrollmentState.value = EnrollmentState.Error("Enrollment failed: ${e.message}")
+            }
         }
     }
 
@@ -141,7 +215,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun completeLesson(lessonId: String, score: Int? = null) {
         val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
-            // Update local first for instant feedback
             db.insertCompletion(LocalCompletionEntity(
                 userId = uid,
                 lessonId = lessonId,
@@ -149,14 +222,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 synced = false
             ))
             
-            // Try updating Firebase
             try {
                 repository.completeLesson(uid, lessonId, score)
-                // If successful, mark synced locally
                 val latest = db.getUnsyncedCompletions().lastOrNull { it.lessonId == lessonId }
                 if (latest != null) db.updateCompletion(latest.copy(synced = true))
             } catch (e: Exception) {
-                // Stay unsynced
             }
         }
     }
@@ -190,14 +260,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-    }
-
-    fun sendEmailVerification() {
-        auth.currentUser?.sendEmailVerification()
-    }
-
-    fun changePassword(newPassword: String) {
-        auth.currentUser?.updatePassword(newPassword)
     }
 }
 

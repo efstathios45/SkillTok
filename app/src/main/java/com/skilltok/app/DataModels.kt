@@ -1,20 +1,16 @@
 package com.skilltok.app
 
-import com.google.firebase.firestore.PropertyName
-
 data class User(
     val id: String = "",
     val name: String = "",
     val email: String = "",
-    val role: String = "learner", // "learner", "instructor", "admin"
-    val avatarUrl: String = "",
-    val interests: List<String> = emptyList(),
-    val goal: String = "",
-    val createdAt: String = "",
-    val streak: Int = 0,
+    val role: String = "learner", // "learner", "instructor"
     val xp: Int = 0,
+    val streak: Int = 0,
     val level: Int = 1,
-    val totalMinutes: Int = 0
+    val interests: List<String> = emptyList(),
+    val goals: List<String> = emptyList(),
+    val onboardingCompleted: Boolean = false
 )
 
 data class Course(
@@ -22,20 +18,19 @@ data class Course(
     val title: String = "",
     val description: String = "",
     val subject: String = "",
-    val level: String = "Beginner", // "Beginner", "Intermediate", "Advanced"
+    val level: String = "Beginner",
     val thumbnailUrl: String = "",
-    val totalDurationMinutes: Int = 0,
-    val createdByUserId: String = "",
-    val hasCertificate: Boolean = false,
+    val rating: Double = 4.5,
+    val learnersCount: Int = 0,
     val createdAt: String = "",
-    val rating: Double = 0.0,
-    val learnersCount: Int = 0
+    val createdByUserId: String = ""
 )
 
 data class Module(
     val id: String = "",
     val courseId: String = "",
     val title: String = "",
+    val description: String = "",
     val orderIndex: Int = 0
 )
 
@@ -48,28 +43,39 @@ data class Lesson(
     val videoUrl: String = "",
     val durationSeconds: Int = 0,
     val orderIndex: Int = 0,
+    val type: String = "reel", // "reel" or "deep_dive"
     val hasQuiz: Boolean = false
 )
 
 data class QuizQuestion(
     val id: String = "",
+    val referenceId: String = "", // lessonId, moduleId or courseId
     val lessonId: String = "",
     val questionText: String = "",
-    val type: String = "single", // "single", "multi", "truefalse"
+    val type: String = "single",
     val options: List<String> = emptyList(),
     val correctAnswerIndexes: List<Int> = emptyList(),
     val explanation: String = ""
+)
+
+data class Grade(
+    val id: String = "",
+    val userId: String = "",
+    val referenceId: String = "",
+    val referenceType: String = "module", // "reel_checkpoint", "module", "final"
+    val score: Int = 0,
+    val total: Int = 0,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 data class Enrollment(
     val id: String = "",
     val userId: String = "",
     val courseId: String = "",
-    val status: String = "not_started", // "not_started", "in_progress", "completed"
+    val status: String = "in_progress",
     val progressPercent: Int = 0,
     val currentLessonId: String = "",
-    val startedAt: String = "",
-    val completedAt: String? = null
+    val startedAt: String = ""
 )
 
 data class LessonCompletion(
@@ -77,7 +83,8 @@ data class LessonCompletion(
     val userId: String = "",
     val lessonId: String = "",
     val completedAt: String = "",
-    val quizScore: Int? = null
+    val quizScore: Int? = null,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 data class ReelComment(
@@ -86,29 +93,5 @@ data class ReelComment(
     val userId: String = "",
     val userName: String = "",
     val text: String = "",
-    val createdAt: String = "",
-    val likes: Int = 0,
-    val likedBy: List<String> = emptyList()
-)
-
-data class ReelCommentReply(
-    val id: String = "",
-    val commentId: String = "",
-    val lessonId: String = "",
-    val userId: String = "",
-    val userName: String = "",
-    val text: String = "",
     val createdAt: String = ""
-)
-
-data class CourseReview(
-    val id: String = "",
-    val courseId: String = "",
-    val userId: String = "",
-    val userName: String = "",
-    val rating: Int = 5,
-    val text: String = "",
-    val createdAt: String = "",
-    val moduleId: String? = null,
-    val moduleTitle: String? = null
 )

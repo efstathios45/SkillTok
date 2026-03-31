@@ -1,69 +1,187 @@
 package com.skilltok.app
 
 object MockData {
-    val COURSE_IMAGES = mapOf(
-        "hrm" to "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=1080",
-        "emotionalIntelligence" to "https://images.unsplash.com/photo-1630406866478-a2fca6070d25?w=1080",
-        "leadership" to "https://images.unsplash.com/photo-1770271359908-a0e5e2214f8e?w=1080",
-        "marketing" to "https://images.unsplash.com/photo-1533750349088-cd871a92f312?w=1080",
-        "publicSpeaking" to "https://images.unsplash.com/photo-1772419216340-fd8abb4f55de?w=1080",
-        "analytics" to "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1080",
-        "negotiation" to "https://images.unsplash.com/photo-1745847768380-2caeadbb3b71?w=1080",
-        "science" to "https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=1080"
-    )
-
     val courses = listOf(
-        Course(id = "c1", title = "Complete Human Resource Management", description = "A comprehensive, end-to-end HRM course covering recruitment, talent management, compensation & benefits, employee relations, HR analytics, legal compliance, performance management, and strategic HR.", subject = "Human Resources", level = "Intermediate", thumbnailUrl = COURSE_IMAGES["hrm"]!!, rating = 4.9, learnersCount = 3847),
-        Course(id = "c2", title = "Emotional Intelligence Mastery", description = "Develop self-awareness, empathy, emotional regulation, and social skills. Learn to navigate complex interpersonal dynamics in both personal and professional settings with science-backed EQ frameworks.", subject = "Emotional Intelligence", level = "Beginner", thumbnailUrl = COURSE_IMAGES["emotionalIntelligence"]!!, rating = 4.8, learnersCount = 2156),
-        Course(id = "c3", title = "Leadership & Management Essentials", description = "From situational leadership to transformational management. Learn how to inspire teams, make strategic decisions, manage conflict, and lead through change with real-world case studies.", subject = "Leadership", level = "Intermediate", thumbnailUrl = COURSE_IMAGES["leadership"]!!, rating = 4.7, learnersCount = 1892),
-        Course(id = "c4", title = "Digital Marketing Strategy", description = "Master SEO, social media marketing, content strategy, email campaigns, and paid advertising. Build data-driven marketing plans that convert.", subject = "Marketing", level = "Beginner", thumbnailUrl = COURSE_IMAGES["marketing"]!!, rating = 4.6, learnersCount = 1543),
-        Course(id = "c5", title = "Public Speaking & Presentation Skills", description = "Overcome stage fright, structure compelling narratives, use body language effectively, and deliver presentations that captivate any audience.", subject = "Public Speaking", level = "Beginner", thumbnailUrl = COURSE_IMAGES["publicSpeaking"]!!, rating = 4.8, learnersCount = 2801),
-        Course(id = "c6", title = "Business Analytics Fundamentals", description = "Learn to collect, analyze, and interpret business data. Cover KPIs, dashboards, A/B testing, regression analysis, and data-driven decision-making.", subject = "Data Analytics", level = "Intermediate", thumbnailUrl = COURSE_IMAGES["analytics"]!!, rating = 4.5, learnersCount = 987),
-        Course(id = "c7", title = "Negotiation & Conflict Resolution", description = "Master BATNA, principled negotiation, and win-win strategies. Handle difficult conversations, resolve workplace conflicts, and negotiate salaries, contracts, and deals.", subject = "Negotiation", level = "Advanced", thumbnailUrl = COURSE_IMAGES["negotiation"]!!, rating = 4.7, learnersCount = 1234),
-        Course(id = "c8", title = "Introduction to Science & Scientific Thinking", description = "Explore the foundations of physics, chemistry, and biology. Learn the scientific method, critical thinking, and how science shapes the modern world.", subject = "Science", level = "Beginner", thumbnailUrl = COURSE_IMAGES["science"]!!, rating = 4.8, learnersCount = 1567)
+        Course(
+            id = "c1", 
+            title = "Modern Leadership Mastery", 
+            subject = "Leadership", 
+            level = "Advanced", 
+            learnersCount = 1250, 
+            rating = 4.9, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1507679799987-c7377f5da5b2?w=800", 
+            description = "Master the art of leadership. Learn to inspire your team, build trust, and lead with a 'Start with Why' mindset inspired by Simon Sinek and Jocko Willink.",
+            createdAt = "2024-01-01T00:00:00.000Z"
+        ),
+        Course(
+            id = "c2", 
+            title = "Digital Marketing & SEO", 
+            subject = "Marketing", 
+            level = "Intermediate", 
+            learnersCount = 3400, 
+            rating = 4.8, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800", 
+            description = "A comprehensive guide to digital marketing. Master SEO, content strategy, and data-driven growth strategies to scale any business.",
+            createdAt = "2024-01-02T00:00:00.000Z"
+        ),
+        Course(
+            id = "c3", 
+            title = "Data Science Foundations", 
+            subject = "Technology", 
+            level = "Beginner", 
+            learnersCount = 4200, 
+            rating = 4.9, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800", 
+            description = "Start your journey in Data Science. Learn Python, statistical analysis, and how to derive actionable insights from complex data sets.",
+            createdAt = "2024-01-03T00:00:00.000Z"
+        ),
+        Course(
+            id = "c4", 
+            title = "The Art of Public Speaking", 
+            subject = "Communication", 
+            level = "Beginner", 
+            learnersCount = 1500, 
+            rating = 4.8, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1475721027785-f74eccf877e2?w=800", 
+            description = "Transform your communication skills. Learn to speak with confidence, clarity, and impact in any professional situation.",
+            createdAt = "2024-01-04T00:00:00.000Z"
+        ),
+        Course(
+            id = "c5", 
+            title = "Advanced HR Management", 
+            subject = "Human Resources", 
+            level = "Advanced", 
+            learnersCount = 950, 
+            rating = 4.7, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800", 
+            description = "Deep dive into workforce planning, recruitment, and employee relations. Perfect for HR professionals aiming for the executive level.",
+            createdAt = "2024-01-05T00:00:00.000Z"
+        ),
+        Course(
+            id = "c6", 
+            title = "Emotional Intelligence Mastery", 
+            subject = "Psychology", 
+            level = "Intermediate", 
+            learnersCount = 2800, 
+            rating = 4.9, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=800", 
+            description = "Unlock the power of EQ. Understand your emotions and learn to influence others through empathy, social awareness, and self-regulation.",
+            createdAt = "2024-01-06T00:00:00.000Z"
+        ),
+        Course(
+            id = "c7", 
+            title = "Negotiation & Persuasion", 
+            subject = "Business", 
+            level = "Advanced", 
+            learnersCount = 1100, 
+            rating = 4.8, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1556761175-b413da4baf72?w=800", 
+            description = "Learn the science of persuasion and the art of negotiation. Master tactical empathy and the BATNA principle for win-win outcomes.",
+            createdAt = "2024-01-07T00:00:00.000Z"
+        ),
+        Course(
+            id = "c8", 
+            title = "Intro to Biological Sciences", 
+            subject = "Science", 
+            level = "Beginner", 
+            learnersCount = 3100, 
+            rating = 4.6, 
+            thumbnailUrl = "https://images.unsplash.com/photo-1530026405186-ed1f139313f8?w=800", 
+            description = "A fascinating journey through life. Explore cell biology, genetics, and ecology in this comprehensive introduction to the biological sciences.",
+            createdAt = "2024-01-08T00:00:00.000Z"
+        )
     )
 
     val modules = listOf(
-        Module("m1", "c1", "Module 1: Introduction to HRM", 0),
-        Module("m2", "c1", "Module 2: Workforce Planning & Recruitment", 1),
-        Module("m9", "c2", "Understanding Emotions", 0),
-        Module("m12", "c3", "Foundations of Leadership", 0),
-        Module("m15", "c4", "Marketing Fundamentals", 0),
-        Module("m17", "c5", "Overcoming Fear", 0),
-        Module("m20", "c6", "Data Fundamentals", 0),
-        Module("m22", "c7", "Negotiation Principles", 0),
-        Module("m24", "c8", "The Scientific Method", 0)
+        // C1: Leadership
+        Module("c1_m1", "c1", "The Leadership Mindset", "Building a foundation of trust and visionary thinking.", 0),
+        Module("c1_m2", "c1", "Inspiring Team Action", "Strategies for organizational culture and cooperation.", 1),
+        // C2: Marketing
+        Module("c2_m1", "c2", "Search Optimization", "How search engines work and how to rank higher.", 0),
+        Module("c2_m2", "c2", "Strategic Marketing", "Digital marketing frameworks and growth hacking.", 1),
+        // C3: Tech
+        Module("c3_m1", "c3", "Introduction to Python", "Core programming concepts for data analysis.", 0),
+        Module("c3_m2", "c3", "Data Science Ecosystem", "Navigating the world of data analytics and ML.", 1),
+        // C4: Communication
+        Module("c4_m1", "c4", "Foundations of Speaking", "Conquering fear and owning the room.", 0),
+        Module("c4_m2", "c4", "Impactful Delivery", "Advanced techniques for public presentations.", 1),
+        // C5: HRM
+        Module("c5_m1", "c5", "Strategic HR Planning", "Aligning human capital with business goals.", 0),
+        Module("c5_m2", "c5", "Employee Experience", "Designing a workplace where talent thrives.", 1),
+        // C6: EQ
+        Module("c6_m1", "c6", "Self-Awareness", "The first pillar of emotional intelligence.", 0),
+        Module("c6_m2", "c6", "Empathy & Social Skills", "Understanding and influencing the social dynamic.", 1),
+        // C7: Negotiation
+        Module("c7_m1", "c7", "Tactical Empathy", "The secret weapon of master negotiators.", 0),
+        Module("c7_m2", "c7", "Closing the Deal", "Frameworks for final stage agreements.", 1),
+        // C8: Science
+        Module("c8_m1", "c8", "The Building Blocks of Life", "Exploring cells and their incredible complexity.", 0),
+        Module("c8_m2", "c8", "Ecosystems & Life", "Understanding how life interacts on a global scale.", 1)
     )
 
     val lessons = listOf(
-        // Human Resources (c1)
-        Lesson("l1", "m1", "c1", "What is HRM?", "Define Human Resource Management and its scope within modern organizations.", "bI9RZjF-538", 90, 0, true),
-        Lesson("l2", "m1", "c1", "Evolution of HR", "Trace the history from administrative personnel management to strategic business partner.", "A2HFusWQIeE", 80, 1, true),
-        Lesson("l5", "m2", "c1", "Workforce Planning Basics", "Learn demand forecasting, supply analysis, and gap analysis.", "y8Kvn6oEX7Q", 90, 0, true),
+        // C1: Leadership
+        Lesson("c1_m1_l1", "c1_m1", "c1", "Leaders Eat Last", "Understanding the biological basis of trust.", "ReRcHdeUG9Y", 60, 0, "reel", true),
+        Lesson("c1_m1_l2", "c1_m1", "c1", "Start With Why", "How great leaders inspire action.", "u4ZoJKF_VuA", 55, 1, "reel", false),
+        Lesson("c1_m2_l1", "c1_m2", "c1", "Extreme Ownership", "Leadership masterclass on accountability.", "ljqra3BcqWM", 1200, 0, "deep_dive", true),
         
-        // Emotional Intelligence (c2)
-        Lesson("l36", "m9", "c2", "What is Emotional Intelligence?", "Goleman's EQ framework: self-awareness, self-regulation, motivation, empathy, social skills.", "Y7m9eNoB3NU", 75, 0, true),
-        Lesson("l37", "m9", "c2", "The Science of Emotions", "How the brain processes emotions: amygdala hijack, prefrontal cortex, and neuroplasticity.", "n9h8fG1DKhA", 80, 1, true),
-        
-        // Leadership (c3)
-        Lesson("l44", "m12", "c3", "Leadership vs. Management", "Key differences, why both matter, and how to develop your leadership identity.", "qp0HIF3SfI4", 75, 0, true),
-        Lesson("l45", "m12", "c3", "Leadership Styles", "Autocratic, democratic, laissez-faire, transformational, servant, and situational leadership.", "ReRcHdeUG9Y", 90, 1, true),
-        
-        // Marketing (c4)
-        Lesson("l51", "m15", "c4", "Marketing Mix & Strategy", "The 4Ps and 7Ps, STP framework, market research, and competitive analysis.", "h95cQkEWBx0", 90, 0, true),
-        
-        // Public Speaking (c5)
-        Lesson("l55", "m17", "c5", "Understanding Stage Fright", "Why we fear public speaking, the physiology of anxiety, and reframing nervousness.", "-FOCpMAww28", 70, 0, true),
-        
-        // Data Analytics (c6)
-        Lesson("l61", "m20", "c6", "What is Business Analytics?", "Types of analytics, the data value chain, and the analyst mindset.", "rGx1QNdYzvs", 75, 0, true),
-        
-        // Negotiation (c7)
-        Lesson("l65", "m22", "c7", "Negotiation Fundamentals", "Distributive vs. integrative negotiation, BATNA, ZOPA, and reservation price.", "MjhDkNmtjy0", 90, 0, true),
-        
-        // Science (c8)
-        Lesson("l69", "m24", "c8", "What is the Scientific Method?", "Observation, hypothesis, experiment, analysis, and conclusion.", "HEfHFsfGXjs", 75, 0, true)
+        // C2: Marketing
+        Lesson("c2_m1_l1", "c2_m1", "c2", "How Google Works", "Introduction to search algorithms.", "BNHR6IQJGZs", 50, 0, "reel", true),
+        Lesson("c2_m1_l2", "c2_m1", "c2", "SEO for Beginners", "Core search optimization principles.", "DvwS7gtrPyo", 65, 1, "reel", false),
+        Lesson("c2_m2_l1", "c2_m2", "c2", "Digital Marketing Course", "Comprehensive digital marketing strategy guide.", "nU-IIXBWlS4", 1500, 0, "deep_dive", true),
+
+        // C3: Technology
+        Lesson("c3_m1_l1", "c3_m1", "c3", "Python in 100 Seconds", "Why Python is the most popular language.", "x7X9w_GIm1s", 40, 0, "reel", true),
+        Lesson("c3_m1_l2", "c3_m1", "c3", "What is Data Science?", "Defining the data-driven future.", "X3paOmcrTjQ", 55, 1, "reel", false),
+        Lesson("c3_m2_l1", "c3_m2", "c3", "Python Data Science Course", "Full masterclass on Python for data analysis.", "rfscVS0vtbw", 1800, 0, "deep_dive", true),
+
+        // C4: Communication
+        Lesson("c4_m1_l1", "c4_m1", "c4", "Speaking so People Listen", "Captivate your audience with your voice.", "eIho2S0ZahI", 45, 0, "reel", true),
+        Lesson("c4_m1_l2", "c4_m1", "c4", "Body Language Mastery", "Using your posture to build confidence.", "Ks-_Mh1QhMc", 60, 1, "reel", false),
+        Lesson("c4_m2_l1", "c4_m2", "c4", "Public Speaking Techniques", "Advanced masterclass from the best TED speakers.", "8li7-it8OkM", 1100, 0, "deep_dive", true),
+
+        // C5: HRM
+        Lesson("c5_m1_l1", "c5_m1", "c5", "Strategic HRM", "Intro to Strategic Human Resource Management.", "m6pGfA8qCsk", 50, 0, "reel", true),
+        Lesson("c5_m1_l2", "c5_m1", "c5", "Workforce Planning", "Identifying future talent needs.", "fW8amMCVAJQ", 65, 1, "reel", false),
+        Lesson("c5_m2_l1", "c5_m2", "c5", "HR Management Class", "The complete guide to HR management.", "9I_Y6Sj7p6Q", 1400, 0, "deep_dive", true),
+
+        // C6: EQ
+        Lesson("c6_m1_l1", "c6_m1", "c6", "Daniel Goleman on EQ", "The father of EQ explains the concept.", "Y7m9eNoB3NU", 60, 0, "reel", true),
+        Lesson("c6_m1_l2", "c6_m1", "c6", "EQ vs IQ", "Why emotional intelligence matters more.", "ReRcHdeUG9Y", 55, 1, "reel", false),
+        Lesson("c6_m2_l1", "c6_m2", "c6", "Mastering Social Skills", "Advanced emotional intelligence masterclass.", "L9m-7_60XWA", 1300, 0, "deep_dive", true),
+
+        // C7: Negotiation
+        Lesson("c7_m1_l1", "c7_m1", "c7", "Tactical Empathy", "Negotiation lessons from Chris Voss.", "qp0HIF3SfI4", 50, 0, "reel", true),
+        Lesson("c7_m1_l2", "c7_m1", "c7", "Never Split Difference", "Quick tips for better negotiations.", "guS9pU_U_z0", 65, 1, "reel", false),
+        Lesson("c7_m2_l1", "c7_m2", "c7", "Negotiation Mastery", "The art and science of closing deals.", "h95cQkEWBx0", 1500, 0, "deep_dive", true),
+
+        // C8: Science
+        Lesson("c8_m1_l1", "c8_m1", "c8", "Biological Molecules", "Intro to the chemistry of life.", "PYH63o10iTE", 40, 0, "reel", true),
+        Lesson("c8_m1_l2", "c8_m1", "c8", "The Cell", "A quick tour of the living cell.", "8li7-it8OkM", 55, 1, "reel", false),
+        Lesson("c8_m2_l1", "c8_m2", "c8", "Biology Full Course", "Crash course in the biological sciences.", "ua-CiDNNj30", 1800, 0, "deep_dive", true)
     )
-    
-    val currentUser = User(id = "u1", name = "Alex", email = "alex@skilltok.com", streak = 15, xp = 3200, level = 10)
+
+    val quizQuestions = mutableListOf<QuizQuestion>().apply {
+        lessons.filter { it.hasQuiz }.forEach { lesson ->
+            add(QuizQuestion(
+                id = "${lesson.id}_q1", referenceId = lesson.id, lessonId = lesson.id,
+                questionText = when(lesson.courseId) {
+                    "c1" -> "According to Simon Sinek, what is the core of trust in leadership?"
+                    "c2" -> "What is the primary goal of Search Engine Optimization?"
+                    "c3" -> "Why is Python widely used in Data Science?"
+                    "c4" -> "What is an effective way to improve stage presence?"
+                    "c5" -> "What is the focus of Strategic HRM?"
+                    "c6" -> "Which of these is a pillar of Emotional Intelligence?"
+                    "c7" -> "What does BATNA stand for in negotiation?"
+                    "c8" -> "What is the primary unit of life in biological science?"
+                    else -> "What is the key takeaway from this lesson?"
+                },
+                options = listOf("Correct Answer (as per video)", "Option B", "Option C", "Option D"),
+                correctAnswerIndexes = listOf(0), 
+                explanation = "This core concept was highlighted in the video as the foundation for mastery in this field."
+            ))
+        }
+    }
+
+    val currentUser = User("u1", "Student Alex", "alex@example.com", "learner", xp = 450, streak = 5, level = 3)
 }

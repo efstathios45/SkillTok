@@ -68,16 +68,16 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
             TopAppBar(
                 title = { 
                     Column {
-                        Text(course.title, fontSize = 12.sp, color = AppColors.TextMuted)
-                        Text(mod?.title ?: "", fontSize = 10.sp, color = AppColors.TextMuted)
+                        Text(course.title, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(mod?.title ?: "", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppColors.Background)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
@@ -85,13 +85,13 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(AppColors.Background)
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
         ) {
             YouTubePlayer(videoId = lesson.videoUrl, isMutedGlobal = false, onMuteToggle = {})
 
             Column(modifier = Modifier.padding(20.dp)) {
-                Text(lesson.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                Text(lesson.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -102,25 +102,25 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Text(lesson.description, color = AppColors.TextMuted, lineHeight = 24.sp, fontSize = 15.sp)
+                Text(lesson.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp, fontSize = 15.sp)
                 
                 Spacer(modifier = Modifier.height(32.dp))
                 
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = AppColors.Card),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Border)
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Lightbulb, null, tint = Color(0xFFFFB800), modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text("Key Takeaways", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                            Text("Key Takeaways", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("• Master the core concepts explained in this video.", color = AppColors.TextMuted, fontSize = 14.sp)
+                        Text("• Master the core concepts explained in this video.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("• Apply these insights to real-world scenarios for better retention.", color = AppColors.TextMuted, fontSize = 14.sp)
+                        Text("• Apply these insights to real-world scenarios for better retention.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                     }
                 }
                 
@@ -133,7 +133,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(Icons.Default.CheckCircle, null)
                     Spacer(modifier = Modifier.width(12.dp))
@@ -145,9 +145,9 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                         onClick = { navController.navigate("quiz/$lessonId") },
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(56.dp),
                         shape = RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Primary)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
                     ) {
-                        Text("Take Quiz", color = AppColors.Primary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Take Quiz", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
                 Spacer(modifier = Modifier.height(20.dp))
@@ -160,7 +160,9 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: NavHostController, viewModel: MainViewModel) {
     val courses by viewModel.courses.collectAsState()
     val course = courses.find { it.id == courseId } ?: return
-    val lessons = MockData.lessons.filter { it.courseId == courseId }
+    val lessons = MockData.lessons.filter { it.courseId == courseId && it.type == "reel" }
+    if (lessons.isEmpty()) return
+
     val initialPage = if (startLessonId != null && startLessonId != "first" && startLessonId != "resume") {
         lessons.indexOfFirst { it.id == startLessonId }.coerceAtLeast(0)
     } else 0
@@ -202,7 +204,26 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
             }
             Spacer(modifier = Modifier.width(16.dp))
-            Text(course.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(course.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
+                Text("Swipe up for next lesson", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+            }
+            
+            // Back to Course Detail Button
+            OutlinedButton(
+                onClick = { navController.navigate("course_detail/${course.id}") {
+                    popUpTo("home")
+                } },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.List, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Course", fontSize = 12.sp)
+            }
         }
     }
 }
@@ -608,15 +629,7 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
     var score by remember { mutableIntStateOf(0) }
     var isFinished by remember { mutableStateOf(false) }
 
-    val questions = listOf(
-        QuizQuestion(
-            questionText = "Which principle was most emphasized in this lesson?",
-            type = "single",
-            options = listOf("Strategic Thinking", "Operational Excellence", "Creative Leadership", "Data Analysis"),
-            correctAnswerIndexes = listOf(0),
-            explanation = "Strategic thinking is core to mastering the concepts presented in this module."
-        )
-    )
+    val questions = MockData.quizQuestions.filter { it.lessonId == lessonId }
 
     if (questions.isEmpty()) return
 
@@ -635,25 +648,25 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 title = { Text("Progress", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = AppColors.Background)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).background(AppColors.Background).padding(24.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background).padding(24.dp)
         ) {
             LinearProgressIndicator(
                 progress = { (currentQuestionIndex + (if(isSubmitted) 1 else 0)).toFloat() / questions.size },
                 modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                color = AppColors.Primary,
-                trackColor = AppColors.Border
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
             )
             
             Spacer(modifier = Modifier.height(40.dp))
-            Text(currentQuestion.questionText, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text(currentQuestion.questionText, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
             Spacer(modifier = Modifier.height(32.dp))
             
             currentQuestion.options.forEachIndexed { index, option ->
@@ -663,8 +676,8 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 val borderColor = when {
                     isSubmitted && isCorrect -> Color(0xFF10B981)
                     isSubmitted && isSelected && !isCorrect -> Color(0xFFEF4444)
-                    isSelected -> AppColors.Primary
-                    else -> AppColors.Border
+                    isSelected -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                 }
 
                 Surface(
@@ -676,25 +689,25 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                     },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    color = if (isSelected) AppColors.Primary.copy(alpha = 0.1f) else AppColors.Card,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surface,
                     border = androidx.compose.foundation.BorderStroke(2.dp, borderColor)
                 ) {
                     Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            modifier = Modifier.size(24.dp).border(2.dp, if (isSelected) AppColors.Primary else AppColors.TextMuted, CircleShape).padding(4.dp)
+                            modifier = Modifier.size(24.dp).border(2.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, CircleShape).padding(4.dp)
                         ) {
-                            if (isSelected) Box(modifier = Modifier.fillMaxSize().background(AppColors.Primary, CircleShape))
+                            if (isSelected) Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary, CircleShape))
                         }
                         Spacer(modifier = Modifier.width(16.dp))
-                        Text(option, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                        Text(option, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
 
             if (isSubmitted) {
                 Spacer(modifier = Modifier.height(24.dp))
-                Card(colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)), shape = RoundedCornerShape(16.dp)) {
-                    Text(currentQuestion.explanation, modifier = Modifier.padding(16.dp), color = AppColors.TextMuted, fontSize = 14.sp)
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), shape = RoundedCornerShape(16.dp)) {
+                    Text(currentQuestion.explanation, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                 }
             }
 
@@ -716,7 +729,7 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
                 enabled = selectedOptionIndexes.isNotEmpty(),
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
                 Text(if (!isSubmitted) "Submit Answer" else "Continue", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
@@ -727,15 +740,15 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
 @Composable
 fun QuizResultScreen(score: Int, total: Int, onBack: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().background(AppColors.Background).padding(32.dp),
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
     ) {
         Box(modifier = Modifier.size(120.dp).background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
             Icon(Icons.Default.EmojiEvents, null, tint = Color.White, modifier = Modifier.size(60.dp))
         }
         Spacer(modifier = Modifier.height(32.dp))
-        Text("Great Job!", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-        Text("${(score.toFloat()/total * 100).toInt()}% Success Rate", fontSize = 20.sp, color = AppColors.Primary, fontWeight = FontWeight.Bold)
+        Text("Great Job!", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
+        Text("${(score.toFloat()/total * 100).toInt()}% Success Rate", fontSize = 20.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
         
         Spacer(modifier = Modifier.height(48.dp))
         Button(onClick = onBack, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {

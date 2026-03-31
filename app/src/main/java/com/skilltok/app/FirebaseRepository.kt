@@ -37,11 +37,7 @@ class FirebaseRepository {
     }.catch { emit(null) }
 
     suspend fun updateUserProfile(user: User) {
-        try {
-            db.collection("user_profiles").document(user.id).set(user, SetOptions.merge()).await()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        db.collection("user_profiles").document(user.id).set(user, SetOptions.merge()).await()
     }
 
     // --- Courses ---
@@ -150,18 +146,15 @@ class FirebaseRepository {
     }.catch { emit(emptyList()) }
 
     suspend fun enrollInCourse(userId: String, courseId: String, firstLessonId: String) {
-        try {
-            val enrollment = Enrollment(
-                userId = userId,
-                courseId = courseId,
-                status = "in_progress",
-                currentLessonId = firstLessonId,
-                startedAt = getCurrentIsoTimestamp()
-            )
-            db.collection("user_enrollments").document("${userId}_$courseId").set(enrollment).await()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        val enrollment = Enrollment(
+            id = "${userId}_$courseId",
+            userId = userId,
+            courseId = courseId,
+            status = "in_progress",
+            currentLessonId = firstLessonId,
+            startedAt = getCurrentIsoTimestamp()
+        )
+        db.collection("user_enrollments").document("${userId}_$courseId").set(enrollment).await()
     }
 
     suspend fun completeLesson(userId: String, lessonId: String, score: Int? = null) {

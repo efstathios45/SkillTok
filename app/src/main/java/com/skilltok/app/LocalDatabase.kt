@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.room.*
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
-import net.sqlcipher.database.SQLiteDatabase
-import net.sqlcipher.database.SupportFactory
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Entity(tableName = "local_user_profile")
 data class LocalUserEntity(
@@ -94,19 +94,19 @@ abstract class SkillTokDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): SkillTokDatabase {
             return INSTANCE ?: synchronized(this) {
-                // Load SQLCipher libraries
-                SQLiteDatabase.loadLibs(context)
+                // Load SQLCipher libraries (Required for initialization)
+                System.loadLibrary("sqlcipher")
                 
-                // In a production app, the passphrase should be stored securely (e.g. in KeyStore)
-                val passphrase = SQLiteDatabase.getBytes("secure_skilltok_passphrase".toCharArray())
-                val factory = SupportFactory(passphrase)
+                // In a production app, the passphrase should be stored securely
+                val passphrase = "secure_skilltok_passphrase".toByteArray()
+                val factory = SupportOpenHelperFactory(passphrase)
 
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     SkillTokDatabase::class.java,
                     "skilltok_local_db"
                 ).openHelperFactory(factory)
-                .fallbackToDestructiveMigration() // For development simplicity
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance
