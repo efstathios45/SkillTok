@@ -15,7 +15,10 @@ data class LocalUserEntity(
     val email: String,
     val xp: Int,
     val streak: Int,
-    val level: Int
+    val level: Int,
+    val interestsJson: String = "",
+    val goalsJson: String = "",
+    val onboardingCompleted: Boolean = false
 )
 
 @Entity(tableName = "local_courses")
@@ -130,7 +133,7 @@ interface SkillTokDao {
 
 @Database(
     entities = [LocalUserEntity::class, LocalCourseEntity::class, LocalEnrollmentEntity::class, LocalCompletionEntity::class, LocalInteractionEntity::class, LocalCommentEntity::class, LocalSavedEntity::class], 
-    version = 5, // Upgraded version for schema change
+    version = 6,
     exportSchema = false
 )
 abstract class SkillTokDatabase : RoomDatabase() {

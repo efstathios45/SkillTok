@@ -22,6 +22,7 @@ sealed class EnrollmentState {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FirebaseRepository()
+    private val userPrefsRepository = UserPreferencesRepository()
     private val auth = FirebaseAuth.getInstance()
     private val db = SkillTokDatabase.getDatabase(application).dao()
 
@@ -166,15 +167,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             launch {
                 db.getUserProfile(uid).collect { local ->
                     if (local != null && _userProfile.value == null) {
-                        _userProfile.value = User(id = local.id, name = local.name, email = local.email, xp = local.xp, streak = local.streak, level = local.level)
+                        _userProfile.value = User(
+                            id = local.id,
+                            name = local.name,
+                            email = local.email,
+                            xp = local.xp,
+                            streak = local.streak,
+                            level = local.level,
+                            interests = local.interestsJson.fromStorageField(),
+                            goals = local.goalsJson.fromStorageField(),
+                            onboardingCompleted = local.onboardingCompleted
+                        )
+                    }
+                }
+            }
+            launch {
+                userPrefsRepository.observeLearningPreferences(uid).collect { prefs ->
+                    val cur = _userProfile.value
+                    if (cur != null && cur.id == uid) {
+                        _userProfile.value = cur.copy(
+                            interests = prefs.interests,
+                            goals = prefs.goals,
+                            onboardingCompleted = prefs.onboardingCompleted
+                        )
+                        db.insertUserProfile(
+                            LocalUserEntity(
+                                id = cur.id,
+                                name = cur.name,
+                                email = cur.email,
+                                xp = cur.xp,
+                                streak = cur.streak,
+                                level = cur.level,
+                                interestsJson = prefs.interests.toStorageField(),
+                                goalsJson = prefs.goals.toStorageField(),
+                                onboardingCompleted = prefs.onboardingCompleted
+                            )
+                        )
                     }
                 }
             }
             launch {
                 repository.getUserProfile(uid).collect { remoteUser ->
                     if (remoteUser != null) {
-                        _userProfile.value = remoteUser
-                        db.insertUserProfile(LocalUserEntity(id = remoteUser.id, name = remoteUser.name, email = remoteUser.email, xp = remoteUser.xp, streak = remoteUser.streak, level = remoteUser.level))
+                        val prev = _userProfile.value
+                        val fromFirestore = runCatching { userPrefsRepository.getLearningPreferencesOnce(uid) }.getOrNull()
+                        val merged = remoteUser.copy(
+                            interests = fromFirestore?.interests?.takeIf { it.isNotEmpty() }
+                                ?: prev?.interests?.takeIf { it.isNotEmpty() }
+                                ?: remoteUser.interests,
+                            goals = fromFirestore?.goals?.takeIf { it.isNotEmpty() }
+                                ?: prev?.goals?.takeIf { it.isNotEmpty() }
+                                ?: remoteUser.goals,
+                            onboardingCompleted = fromFirestore?.onboardingCompleted == true
+                                || prev?.onboardingCompleted == true
+                                || remoteUser.onboardingCompleted,
+                            xp = if (remoteUser.xp != 0) remoteUser.xp else prev?.xp ?: remoteUser.xp,
+                            streak = if (remoteUser.streak != 0) remoteUser.streak else prev?.streak ?: remoteUser.streak,
+                            level = if (remoteUser.level != 1) remoteUser.level else prev?.level ?: remoteUser.level
+                        )
+                        _userProfile.value = merged
+                        db.insertUserProfile(
+                            LocalUserEntity(
+                                id = merged.id,
+                                name = merged.name,
+                                email = merged.email,
+                                xp = merged.xp,
+                                streak = merged.streak,
+                                level = merged.level,
+                                interestsJson = merged.interests.toStorageField(),
+                                goalsJson = merged.goals.toStorageField(),
+                                onboardingCompleted = merged.onboardingCompleted
+                            )
+                        )
                     }
                 }
             }
@@ -185,17 +249,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null) {
-        val newUser = User(id = firebaseUser.uid, name = customName ?: firebaseUser.displayName ?: "Learner", email = firebaseUser.email ?: "", photoUrl = firebaseUser.photoUrl?.toString())
+        val prev = _userProfile.value
+        val newUser = User(
+            id = firebaseUser.uid,
+            name = customName ?: firebaseUser.displayName ?: "Learner",
+            email = firebaseUser.email ?: "",
+            photoUrl = firebaseUser.photoUrl?.toString(),
+            interests = prev?.interests ?: emptyList(),
+            goals = prev?.goals ?: emptyList(),
+            onboardingCompleted = prev?.onboardingCompleted == true
+        )
         repository.updateUserProfile(newUser)
         _userProfile.value = newUser
-        db.insertUserProfile(LocalUserEntity(id = newUser.id, name = newUser.name, email = newUser.email, xp = 0, streak = 0, level = 1))
+        db.insertUserProfile(
+            LocalUserEntity(
+                id = newUser.id,
+                name = newUser.name,
+                email = newUser.email,
+                xp = prev?.xp ?: 0,
+                streak = prev?.streak ?: 0,
+                level = prev?.level ?: 1,
+                interestsJson = newUser.interests.toStorageField(),
+                goalsJson = newUser.goals.toStorageField(),
+                onboardingCompleted = newUser.onboardingCompleted
+            )
+        )
     }
 
     fun toggleLike(lessonId: String) {
         val uid = auth.currentUser?.uid ?: return
         val currentlyLiked = _likes.value.contains(lessonId)
         viewModelScope.launch {
-            if (currentlyLiked) _likes.value -= lessonId else _likes.value += lessonId
+            if (currentlyLiked) _likes.value -= lessonId else {
+                _likes.value += lessonId
+                UiSoundEffects.play(AppUiSound.Like)
+            }
             repository.toggleLike(lessonId, !currentlyLiked)
             db.insertInteraction(LocalInteractionEntity("${uid}_$lessonId", uid, lessonId, !currentlyLiked))
         }
@@ -223,6 +311,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val timestamp = System.currentTimeMillis()
         val comment = ReelComment(commentId, lessonId, user.id, user.name, text, timestamp)
         viewModelScope.launch {
+            UiSoundEffects.play(AppUiSound.Comment)
             db.insertComment(LocalCommentEntity(commentId, lessonId, user.id, user.name, text, timestamp))
             repository.addComment(comment)
             loadComments(lessonId)
@@ -249,7 +338,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _userProfile.value = updated
         viewModelScope.launch {
             repository.updateUserProfile(updated)
-            db.insertUserProfile(LocalUserEntity(id = updated.id, name = updated.name, email = updated.email, xp = updated.xp, streak = updated.streak, level = updated.level))
+            userPrefsRepository.saveLearningPreferences(
+                user.id,
+                UserLearningPreferences(interests, goals, onboardingCompleted = true)
+            )
+            db.insertUserProfile(
+                LocalUserEntity(
+                    id = updated.id,
+                    name = updated.name,
+                    email = updated.email,
+                    xp = updated.xp,
+                    streak = updated.streak,
+                    level = updated.level,
+                    interestsJson = interests.toStorageField(),
+                    goalsJson = goals.toStorageField(),
+                    onboardingCompleted = true
+                )
+            )
         }
     }
 
@@ -281,12 +386,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enrollInCourse(courseId: String, startLessonId: String? = null) {
         val uid = auth.currentUser?.uid ?: return
+        if (_enrollments.value.any { it.courseId == courseId }) return
         viewModelScope.launch {
             _enrollmentState.value = EnrollmentState.Loading
             try {
                 repository.enrollInCourse(courseId)
                 db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
                 _enrollments.value += Enrollment(courseId = courseId)
+                UiSoundEffects.play(AppUiSound.Enroll)
                 _enrollmentState.value = EnrollmentState.Success(courseId)
             } catch (e: Exception) {
                 _enrollmentState.value = EnrollmentState.Error(e.message ?: "Enrollment failed")

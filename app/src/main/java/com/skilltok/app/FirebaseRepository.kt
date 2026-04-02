@@ -223,7 +223,12 @@ class FirebaseRepository {
             val remoteId = idMap.entries.find { it.value == courseId }?.key ?: courseId
             val courseUuid = remoteId.toUUID() ?: return
             connector.enrollInCourse.execute(courseId = courseUuid)
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Enroll failed", e) }
+        } catch (e: Exception) {
+            val msg = e.message?.lowercase() ?: ""
+            if ("unique" in msg || "duplicate" in msg || "already" in msg) return
+            Log.e("FirebaseRepository", "Enroll failed", e)
+            throw e
+        }
     }
 
     fun getEnrollments(): Flow<List<Enrollment>> = flow {
