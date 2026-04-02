@@ -399,7 +399,8 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
     val courses by viewModel.courses.collectAsState()
     val course = courses.find { it.id == courseId } ?: return
     val modules by viewModel.getCourseModules(courseId).collectAsState(initial = emptyList())
-    val isEnrolled = viewModel.isEnrolled(courseId)
+    val enrollments by viewModel.enrollments.collectAsState()
+    val isEnrolled = enrollments.any { it.courseId == courseId }
     val enrollmentState by viewModel.enrollmentState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     
@@ -545,7 +546,8 @@ fun ModuleListItem(module: Module, viewModel: MainViewModel, navController: NavH
 fun MyCoursesScreen(navController: NavHostController, viewModel: MainViewModel) {
     val enrollments by viewModel.enrollments.collectAsState()
     val allCourses by viewModel.courses.collectAsState()
-    val myCourses = allCourses.filter { course -> enrollments.any { it.courseId == course.id } }
+    val enrolledCourseIds = enrollments.map { it.courseId }.toSet()
+    val myCourses = allCourses.filter { course -> course.id in enrolledCourseIds }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
