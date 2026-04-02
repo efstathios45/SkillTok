@@ -259,6 +259,9 @@ fun ReelItem(
     
     var showHeartAnim by remember { mutableStateOf(false) }
     var isManuallyPaused by remember { mutableStateOf(false) }
+    var reelSeekNonce by remember { mutableLongStateOf(0L) }
+    var reelSeekDelta by remember { mutableIntStateOf(0) }
+    var seekHint by remember { mutableStateOf<String?>(null) }
     
     val enrollments by viewModel.enrollments.collectAsState()
     val isEnrolled = enrollments.any { it.courseId == course.id }
@@ -273,32 +276,72 @@ fun ReelItem(
         animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing)), label = "discRotation"
     )
 
+    fun triggerSeek(delta: Int, label: String) {
+        reelSeekDelta = delta
+        reelSeekNonce++
+        seekHint = label
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        scope.launch {
+            delay(650)
+            seekHint = null
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         YouTubePlayer(
-            videoId = lesson.videoUrl, 
-            modifier = Modifier.pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = {
-                        isManuallyPaused = !isManuallyPaused
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    onDoubleTap = {
-                        if (!isLiked) viewModel.toggleLike(lesson.id)
-                        showHeartAnim = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        scope.launch { delay(800); showHeartAnim = false }
-                    },
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        isManuallyPaused = true
-                    }
-                )
-            },
-            isReel = true, 
-            isPlaying = isPlaying && !isManuallyPaused && !showComments, 
-            isMutedGlobal = isMutedGlobal, 
-            onMuteToggle = onMuteToggle
+            videoId = lesson.videoUrl,
+            modifier = Modifier.fillMaxSize(),
+            isReel = true,
+            isPlaying = isPlaying && !isManuallyPaused && !showComments,
+            isMutedGlobal = isMutedGlobal,
+            onMuteToggle = onMuteToggle,
+            reelSeekNonce = reelSeekNonce,
+            reelSeekDelta = reelSeekDelta
         )
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            isManuallyPaused = !isManuallyPaused
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDoubleTap = { offset ->
+                            val w = size.width.toFloat()
+                            val x = offset.x
+                            when {
+                                x < w / 3f -> triggerSeek(-10, "−10s")
+                                x > w * 2f / 3f -> triggerSeek(10, "+10s")
+                                else -> {
+                                    if (!isLiked) viewModel.toggleLike(lesson.id)
+                                    else haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showHeartAnim = true
+                                    scope.launch { delay(800); showHeartAnim = false }
+                                }
+                            }
+                        },
+                        onLongPress = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isManuallyPaused = true
+                        }
+                    )
+                }
+        )
+
+        seekHint?.let { hint ->
+            Text(
+                text = hint,
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            )
+        }
 
         // Center Heart Popup Animation
         AnimatedVisibility(
@@ -356,8 +399,10 @@ fun ReelItem(
                                 .offset(x = 2.dp, y = 2.dp)
                                 .background(Color.White, CircleShape)
                                 .clickable {
-                                    viewModel.enrollInCourse(course.id, lesson.id)
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (!isEnrolled) {
+                                        viewModel.enrollInCourse(course.id, lesson.id)
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -575,12 +620,14 @@ fun InteractionItem(
 
 @Composable
 fun YouTubePlayer(
-    videoId: String, 
+    videoId: String,
     modifier: Modifier = Modifier,
-    isReel: Boolean = false, 
+    isReel: Boolean = false,
     isPlaying: Boolean = true,
     isMutedGlobal: Boolean = false,
-    onMuteToggle: (Boolean) -> Unit = {}
+    onMuteToggle: (Boolean) -> Unit = {},
+    reelSeekNonce: Long = 0L,
+    reelSeekDelta: Int = 0
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -694,6 +741,12 @@ fun YouTubePlayer(
     LaunchedEffect(isReady, isMutedGlobal) {
         if (isReady) {
             webView.evaluateJavascript("setMute($isMutedGlobal)", null)
+        }
+    }
+
+    LaunchedEffect(isReady, reelSeekNonce) {
+        if (isReady && reelSeekNonce != 0L && reelSeekDelta != 0) {
+            webView.evaluateJavascript("seek($reelSeekDelta)", null)
         }
     }
 
