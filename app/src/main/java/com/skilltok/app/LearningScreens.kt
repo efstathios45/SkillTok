@@ -31,7 +31,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -41,7 +40,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -250,6 +248,7 @@ fun ReelItem(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val soundFeedback = rememberSoundFeedbackPlayer()
     
     val likes by viewModel.likes.collectAsState()
     val isLiked = likes.contains(lesson.id)
@@ -259,6 +258,9 @@ fun ReelItem(
     
     var showHeartAnim by remember { mutableStateOf(false) }
     var isManuallyPaused by remember { mutableStateOf(false) }
+    var seekDeltaSeconds by remember { mutableStateOf<Int?>(null) }
+    var seekRequestToken by remember { mutableLongStateOf(0L) }
+    var seekIndicatorDelta by remember { mutableStateOf<Int?>(null) }
     
     val enrollments by viewModel.enrollments.collectAsState()
     val isEnrolled = enrollments.any { it.courseId == course.id }
@@ -282,11 +284,16 @@ fun ReelItem(
                         isManuallyPaused = !isManuallyPaused
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
-                    onDoubleTap = {
-                        if (!isLiked) viewModel.toggleLike(lesson.id)
-                        showHeartAnim = true
+                    onDoubleTap = { tapOffset ->
+                        val delta = if (tapOffset.x < size.width / 2f) -10 else 10
+                        seekDeltaSeconds = delta
+                        seekRequestToken += 1L
+                        seekIndicatorDelta = delta
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        scope.launch { delay(800); showHeartAnim = false }
+                        scope.launch {
+                            delay(700)
+                            seekIndicatorDelta = null
+                        }
                     },
                     onLongPress = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -297,7 +304,9 @@ fun ReelItem(
             isReel = true, 
             isPlaying = isPlaying && !isManuallyPaused && !showComments, 
             isMutedGlobal = isMutedGlobal, 
-            onMuteToggle = onMuteToggle
+            onMuteToggle = onMuteToggle,
+            seekDeltaSeconds = seekDeltaSeconds,
+            seekRequestToken = seekRequestToken
         )
 
         // Center Heart Popup Animation
@@ -324,6 +333,34 @@ fun ReelItem(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(50.dp))
+            }
+        }
+        
+        // YouTube-style seek hint for double-tap areas
+        AnimatedVisibility(
+            visible = seekIndicatorDelta != null,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            val isForward = (seekIndicatorDelta ?: 0) > 0
+            Row(
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    if (isForward) Icons.Default.Forward10 else Icons.Default.Replay10,
+                    null,
+                    tint = Color.White
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isForward) "+10s" else "-10s",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
@@ -357,6 +394,7 @@ fun ReelItem(
                                 .background(Color.White, CircleShape)
                                 .clickable {
                                     viewModel.enrollInCourse(course.id, lesson.id)
+                                    soundFeedback.play(AppSoundEvent.Enroll)
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                             contentAlignment = Alignment.Center
@@ -423,7 +461,12 @@ fun ReelItem(
                 activeColor = Color.Red,
                 onClick = { 
                     viewModel.toggleLike(lesson.id)
+                    soundFeedback.play(AppSoundEvent.Like)
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (!isLiked) {
+                        showHeartAnim = true
+                        scope.launch { delay(650); showHeartAnim = false }
+                    }
                 }
             )
             InteractionItem(
@@ -478,10 +521,13 @@ fun ReelItem(
 
         if (showComments) {
             CommentsBottomSheet(
-                lessonId = lesson.id,
                 comments = lessonComments,
                 onDismiss = { showComments = false },
-                onSendComment = { viewModel.addComment(lesson.id, it) }
+                onSendComment = { viewModel.addComment(lesson.id, it) },
+                onCommentSent = {
+                    soundFeedback.play(AppSoundEvent.Comment)
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
             )
         }
     }
@@ -489,10 +535,10 @@ fun ReelItem(
 
 @Composable
 fun CommentsBottomSheet(
-    lessonId: String,
     comments: List<ReelComment>,
     onDismiss: () -> Unit,
-    onSendComment: (String) -> Unit
+    onSendComment: (String) -> Unit,
+    onCommentSent: () -> Unit = {}
 ) {
     var commentText by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState()
@@ -534,6 +580,7 @@ fun CommentsBottomSheet(
                 IconButton(onClick = { 
                     if (commentText.isNotBlank()) {
                         onSendComment(commentText)
+                        onCommentSent()
                         commentText = ""
                     }
                 }) {
@@ -580,7 +627,9 @@ fun YouTubePlayer(
     isReel: Boolean = false, 
     isPlaying: Boolean = true,
     isMutedGlobal: Boolean = false,
-    onMuteToggle: (Boolean) -> Unit = {}
+    onMuteToggle: (Boolean) -> Unit = {},
+    seekDeltaSeconds: Int? = null,
+    seekRequestToken: Long = 0L
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -694,6 +743,13 @@ fun YouTubePlayer(
     LaunchedEffect(isReady, isMutedGlobal) {
         if (isReady) {
             webView.evaluateJavascript("setMute($isMutedGlobal)", null)
+        }
+    }
+    
+    LaunchedEffect(isReady, seekRequestToken) {
+        val delta = seekDeltaSeconds ?: 0
+        if (isReady && delta != 0) {
+            webView.evaluateJavascript("seek($delta)", null)
         }
     }
 

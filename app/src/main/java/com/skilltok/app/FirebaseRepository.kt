@@ -1,14 +1,18 @@
 package com.skilltok.app
 
 import android.util.Log
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.skilltok.app.dataconnect.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.tasks.await
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 class FirebaseRepository {
     private val connector = SkilltokConnectorConnector.instance
+    private val userPreferencesCollection = FirebaseFirestore.getInstance().collection("user_preferences")
 
     companion object {
         val idMap = ConcurrentHashMap<String, String>()
@@ -43,6 +47,10 @@ class FirebaseRepository {
             if (id != null && id.length == 11) return id
         }
         return ""
+    }
+    
+    private fun Any?.asStringList(): List<String> {
+        return (this as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
     }
 
     // --- Social Interactions with Foreign Key Safety ---
@@ -260,7 +268,22 @@ class FirebaseRepository {
         try {
             val result = connector.getUserProfile.execute(id = uid)
             val data = result.data.user
-            if (data != null) emit(User(id = data.id, name = data.displayName, email = data.email, photoUrl = data.photoUrl, bio = data.bio, role = data.role))
+            if (data != null) {
+                val onboardingPrefs = getUserOnboardingPreferences(uid)
+                emit(
+                    User(
+                        id = data.id,
+                        name = data.displayName,
+                        email = data.email,
+                        photoUrl = data.photoUrl,
+                        bio = data.bio,
+                        role = data.role,
+                        interests = onboardingPrefs?.interests ?: emptyList(),
+                        goals = onboardingPrefs?.goals ?: emptyList(),
+                        onboardingCompleted = onboardingPrefs?.onboardingCompleted ?: false
+                    )
+                )
+            }
         } catch (e: Exception) { 
             Log.e("FirebaseRepository", "Get profile failed", e)
             emit(null) 
@@ -271,5 +294,38 @@ class FirebaseRepository {
         try {
             connector.upsertUser.execute(displayName = user.name, email = user.email, photoUrl = user.photoUrl ?: "")
         } catch (e: Exception) { Log.e("FirebaseRepository", "Update profile failed", e) }
+    }
+    
+    suspend fun getUserOnboardingPreferences(uid: String): UserOnboardingPreferences? {
+        return try {
+            val snapshot = userPreferencesCollection.document(uid).get().await()
+            if (!snapshot.exists()) return null
+            val interests = snapshot.get("interests").asStringList()
+            val goals = snapshot.get("goals").asStringList()
+            val onboardingCompleted = snapshot.getBoolean("onboardingCompleted")
+                ?: (interests.isNotEmpty() && goals.isNotEmpty())
+            UserOnboardingPreferences(
+                interests = interests,
+                goals = goals,
+                onboardingCompleted = onboardingCompleted
+            )
+        } catch (e: Exception) {
+            Log.w("FirebaseRepository", "Failed to read onboarding preferences", e)
+            null
+        }
+    }
+    
+    suspend fun saveUserOnboardingPreferences(uid: String, interests: List<String>, goals: List<String>) {
+        try {
+            val payload = mapOf(
+                "interests" to interests,
+                "goals" to goals,
+                "onboardingCompleted" to true,
+                "updatedAt" to System.currentTimeMillis()
+            )
+            userPreferencesCollection.document(uid).set(payload, SetOptions.merge()).await()
+        } catch (e: Exception) {
+            Log.e("FirebaseRepository", "Failed to save onboarding preferences", e)
+        }
     }
 }

@@ -171,6 +171,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             launch {
+                db.getEnrollments(uid).collect { locals ->
+                    if (locals.isNotEmpty() && _enrollments.value.isEmpty()) {
+                        _enrollments.value = locals
+                            .map {
+                                Enrollment(
+                                    courseId = it.courseId,
+                                    userId = it.userId,
+                                    status = it.status,
+                                    progressPercent = it.progressPercent,
+                                    currentLessonId = it.currentLessonId
+                                )
+                            }
+                            .distinctBy { it.courseId }
+                    }
+                }
+            }
+            launch {
                 repository.getUserProfile(uid).collect { remoteUser ->
                     if (remoteUser != null) {
                         _userProfile.value = remoteUser
@@ -178,14 +195,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-            launch { repository.getEnrollments().collect { _enrollments.value = it } }
+            launch {
+                repository.getEnrollments().collect { remoteEnrollments ->
+                    if (remoteEnrollments.isNotEmpty()) {
+                        val distinct = remoteEnrollments.distinctBy { it.courseId }
+                        _enrollments.value = distinct
+                        distinct.forEach { enrollment ->
+                            db.insertEnrollment(
+                                LocalEnrollmentEntity(
+                                    id = "${uid}_${enrollment.courseId}",
+                                    userId = uid,
+                                    courseId = enrollment.courseId,
+                                    status = "enrolled",
+                                    progressPercent = enrollment.progressPercent,
+                                    currentLessonId = enrollment.currentLessonId
+                                )
+                            )
+                        }
+                    }
+                }
+            }
             launch { repository.getUserSaved().collect { _savedVideos.value = it.toSet() } }
             launch { repository.getUserLikes().collect { _likes.value = it.toSet() } }
         }
     }
 
     suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null) {
-        val newUser = User(id = firebaseUser.uid, name = customName ?: firebaseUser.displayName ?: "Learner", email = firebaseUser.email ?: "", photoUrl = firebaseUser.photoUrl?.toString())
+        val onboardingPrefs = repository.getUserOnboardingPreferences(firebaseUser.uid)
+        val currentUserState = _userProfile.value?.takeIf { it.id == firebaseUser.uid }
+        val newUser = User(
+            id = firebaseUser.uid,
+            name = customName ?: firebaseUser.displayName ?: "Learner",
+            email = firebaseUser.email ?: "",
+            photoUrl = firebaseUser.photoUrl?.toString(),
+            interests = onboardingPrefs?.interests ?: currentUserState?.interests.orEmpty(),
+            goals = onboardingPrefs?.goals ?: currentUserState?.goals.orEmpty(),
+            onboardingCompleted = onboardingPrefs?.onboardingCompleted ?: (currentUserState?.onboardingCompleted ?: false)
+        )
         repository.updateUserProfile(newUser)
         _userProfile.value = newUser
         db.insertUserProfile(LocalUserEntity(id = newUser.id, name = newUser.name, email = newUser.email, xp = 0, streak = 0, level = 1))
@@ -248,6 +294,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val updated = user.copy(interests = interests, goals = goals, onboardingCompleted = true)
         _userProfile.value = updated
         viewModelScope.launch {
+            repository.saveUserOnboardingPreferences(updated.id, interests, goals)
             repository.updateUserProfile(updated)
             db.insertUserProfile(LocalUserEntity(id = updated.id, name = updated.name, email = updated.email, xp = updated.xp, streak = updated.streak, level = updated.level))
         }
@@ -281,12 +328,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enrollInCourse(courseId: String, startLessonId: String? = null) {
         val uid = auth.currentUser?.uid ?: return
+        if (_enrollmentState.value is EnrollmentState.Loading) return
+        if (_enrollments.value.any { it.courseId == courseId }) return
         viewModelScope.launch {
             _enrollmentState.value = EnrollmentState.Loading
             try {
                 repository.enrollInCourse(courseId)
                 db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
-                _enrollments.value += Enrollment(courseId = courseId)
+                if (_enrollments.value.none { it.courseId == courseId }) {
+                    _enrollments.value += Enrollment(courseId = courseId, userId = uid, status = "enrolled", currentLessonId = startLessonId ?: "")
+                }
                 _enrollmentState.value = EnrollmentState.Success(courseId)
             } catch (e: Exception) {
                 _enrollmentState.value = EnrollmentState.Error(e.message ?: "Enrollment failed")

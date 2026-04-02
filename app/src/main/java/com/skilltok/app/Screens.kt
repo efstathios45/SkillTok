@@ -31,6 +31,7 @@ import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.graphics.Brush
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -416,47 +417,70 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
         }
     }
 
+    val soundFeedback = rememberSoundFeedbackPlayer()
+    
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Course Details", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())) {
-            AsyncImage(
-                model = course.thumbnailUrl,
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth().height(240.dp),
-                contentScale = ContentScale.Crop
-            )
-            
-            Column(modifier = Modifier.padding(24.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CourseBadge(course.subject)
+            Box(modifier = Modifier.fillMaxWidth().height(310.dp)) {
+                AsyncImage(
+                    model = course.thumbnailUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.2f),
+                                0.55f to Color.Black.copy(alpha = 0.35f),
+                                1f to Color.Black.copy(alpha = 0.75f)
+                            )
+                        )
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                ) {
+                    IconButton(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                    }
                     Spacer(modifier = Modifier.weight(1f))
+                    CourseBadge(course.subject)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(course.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 34.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Level: ${course.level}",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
                     if (isEnrolled) {
                         Button(
                             onClick = { navController.navigate("reels/${course.id}/resume") },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.height(48.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, null)
-                            Text("REELVIEW")
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Continue in Reels", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(course.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
-                Spacer(modifier = Modifier.height(16.dp))
+            }
+            
+            Column(modifier = Modifier.padding(24.dp)) {
                 Text(course.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp)
                 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -474,6 +498,7 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
                     Button(
                         onClick = { 
                             viewModel.enrollInCourse(course.id)
+                            soundFeedback.play(AppSoundEvent.Enroll)
                         },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(16.dp),

@@ -65,7 +65,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    LaunchedEffect(auth.currentUser, auth.currentUser?.isEmailVerified, currentUser) {
+    LaunchedEffect(auth.currentUser, auth.currentUser?.isEmailVerified, currentUser, currentRoute) {
         val user = auth.currentUser
         val profile = currentUser
         if (user == null || !user.isEmailVerified) {
@@ -74,14 +74,11 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     popUpTo(0) { inclusive = true }
                 }
             }
-        } else if (currentRoute == "auth") {
-            // ONLY NAVIGATE IF THE PROFILE MATCHES THE LOGGED IN USER
-            if (profile != null && profile.id == user.uid) {
-                if (profile.onboardingCompleted == false) {
-                    navController.navigate("onboarding") { popUpTo(0) }
-                } else {
-                    navController.navigate("home") { popUpTo(0) }
-                }
+        } else if (profile != null && profile.id == user.uid) {
+            if (!profile.onboardingCompleted && currentRoute != "onboarding") {
+                navController.navigate("onboarding") { popUpTo(0) }
+            } else if (profile.onboardingCompleted && (currentRoute == "auth" || currentRoute == "onboarding")) {
+                navController.navigate("home") { popUpTo(0) }
             }
         }
     }
@@ -128,12 +125,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
         ) {
             composable("auth") { 
                 AuthScreen(viewModel = viewModel, onLoginSuccess = {
-                    auth.currentUser?.let { user ->
-                        if (user.isEmailVerified) {
-                            if (currentUser?.onboardingCompleted == false) navController.navigate("onboarding")
-                            else navController.navigate("home")
-                        }
-                    }
+                    // Navigation after auth is handled centrally via auth/profile observer.
                 }) 
             }
             composable("onboarding") { OnboardingScreen(navController, viewModel) }

@@ -17,6 +17,12 @@ data class User(
     val savedVideosCount: Int = 0
 )
 
+data class UserOnboardingPreferences(
+    val interests: List<String> = emptyList(),
+    val goals: List<String> = emptyList(),
+    val onboardingCompleted: Boolean = false
+)
+
 data class Course(
     val id: String = "",
     val title: String = "",
