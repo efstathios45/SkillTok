@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -54,6 +55,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+// ─── Seek Overlay State ──────────────────────────────────────────────────────
+
+private enum class SeekDirection { BACK, FORWARD, NONE }
 
 @Composable
 fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewModel: MainViewModel) {
@@ -131,6 +136,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                 Button(
                     onClick = { 
                         viewModel.completeLesson(lesson.id)
+                        SoundManager.playComplete()
                         Toast.makeText(context, "Great! +25 XP", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -199,39 +205,54 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
             )
         }
 
-        // Professional Top Header - Improved to use "wasted screen"
+        // Immersive Top Header with course info
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent)
+                    )
+                )
                 .statusBarsPadding()
+                .padding(top = 8.dp, bottom = 20.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = { navController.popBackStack() },
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.3f), CircleShape)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
                 }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text(course.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text("${pagerState.currentPage + 1} of ${lessons.size} lessons", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        course.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 17.sp,
+                        maxLines = 1
+                    )
+                    Text(
+                        "${pagerState.currentPage + 1} / ${lessons.size} lessons",
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = 12.sp
+                    )
                 }
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             
             LinearProgressIndicator(
                 progress = { (pagerState.currentPage + 1).toFloat() / lessons.size },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
+                modifier = Modifier.fillMaxWidth().height(3.dp),
                 color = AppColors.Primary,
-                trackColor = Color.White.copy(alpha = 0.1f)
+                trackColor = Color.White.copy(alpha = 0.15f)
             )
         }
     }
@@ -267,6 +288,13 @@ fun ReelItem(
     val lessonComments = comments[lesson.id] ?: emptyList()
     var showComments by remember { mutableStateOf(false) }
 
+    // Seek overlay state
+    var seekDirection by remember { mutableStateOf(SeekDirection.NONE) }
+    var seekTapCount by remember { mutableIntStateOf(0) }
+
+    // Exposed WebView reference for seeking
+    val webViewRef = remember { mutableStateOf<WebView?>(null) }
+
     val infiniteTransition = rememberInfiniteTransition(label = "disc")
     val discRotation by infiniteTransition.animateFloat(
         initialValue = 0f, targetValue = 360f,
@@ -275,32 +303,129 @@ fun ReelItem(
 
     Box(modifier = Modifier.fillMaxSize()) {
         YouTubePlayer(
-            videoId = lesson.videoUrl, 
-            modifier = Modifier.pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = {
-                        isManuallyPaused = !isManuallyPaused
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    onDoubleTap = {
-                        if (!isLiked) viewModel.toggleLike(lesson.id)
-                        showHeartAnim = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        scope.launch { delay(800); showHeartAnim = false }
-                    },
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        isManuallyPaused = true
-                    }
-                )
-            },
-            isReel = true, 
-            isPlaying = isPlaying && !isManuallyPaused && !showComments, 
-            isMutedGlobal = isMutedGlobal, 
-            onMuteToggle = onMuteToggle
+            videoId = lesson.videoUrl,
+            modifier = Modifier.fillMaxSize(),
+            isReel = true,
+            isPlaying = isPlaying && !isManuallyPaused && !showComments,
+            isMutedGlobal = isMutedGlobal,
+            onMuteToggle = onMuteToggle,
+            onWebViewReady = { webViewRef.value = it }
         )
 
-        // Center Heart Popup Animation
+        // YouTube-style tap zones overlay
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Left zone — seek back 10s
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                webViewRef.value?.evaluateJavascript("seek(-10)", null)
+                                SoundManager.playSeek()
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                seekDirection = SeekDirection.BACK
+                                seekTapCount++
+                                scope.launch { delay(800); if (seekDirection == SeekDirection.BACK) { seekDirection = SeekDirection.NONE; seekTapCount = 0 } }
+                            },
+                            onDoubleTap = {
+                                webViewRef.value?.evaluateJavascript("seek(-10)", null)
+                                SoundManager.playSeek()
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                seekDirection = SeekDirection.BACK
+                                seekTapCount = (seekTapCount + 1).coerceAtMost(5)
+                                scope.launch { delay(800); if (seekDirection == SeekDirection.BACK) { seekDirection = SeekDirection.NONE; seekTapCount = 0 } }
+                            },
+                            onLongPress = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                isManuallyPaused = true
+                            }
+                        )
+                    }
+            )
+
+            // Center zone — tap to pause/play, double-tap to like
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                isManuallyPaused = !isManuallyPaused
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            onDoubleTap = {
+                                if (!isLiked) {
+                                    viewModel.toggleLike(lesson.id)
+                                    SoundManager.playLike()
+                                }
+                                showHeartAnim = true
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch { delay(800); showHeartAnim = false }
+                            },
+                            onLongPress = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                isManuallyPaused = true
+                            }
+                        )
+                    }
+            )
+
+            // Right zone — seek forward 10s
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                webViewRef.value?.evaluateJavascript("seek(10)", null)
+                                SoundManager.playSeek()
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                seekDirection = SeekDirection.FORWARD
+                                seekTapCount++
+                                scope.launch { delay(800); if (seekDirection == SeekDirection.FORWARD) { seekDirection = SeekDirection.NONE; seekTapCount = 0 } }
+                            },
+                            onDoubleTap = {
+                                webViewRef.value?.evaluateJavascript("seek(10)", null)
+                                SoundManager.playSeek()
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                seekDirection = SeekDirection.FORWARD
+                                seekTapCount = (seekTapCount + 1).coerceAtMost(5)
+                                scope.launch { delay(800); if (seekDirection == SeekDirection.FORWARD) { seekDirection = SeekDirection.NONE; seekTapCount = 0 } }
+                            },
+                            onLongPress = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                isManuallyPaused = true
+                            }
+                        )
+                    }
+            )
+        }
+
+        // Left seek animation (YouTube style ripple)
+        AnimatedVisibility(
+            visible = seekDirection == SeekDirection.BACK,
+            enter = fadeIn(tween(80)),
+            exit = fadeOut(tween(300)),
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
+            SeekIndicator(forward = false, tapCount = seekTapCount)
+        }
+
+        // Right seek animation
+        AnimatedVisibility(
+            visible = seekDirection == SeekDirection.FORWARD,
+            enter = fadeIn(tween(80)),
+            exit = fadeOut(tween(300)),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            SeekIndicator(forward = true, tapCount = seekTapCount)
+        }
+
+        // Center double-tap heart
         AnimatedVisibility(
             visible = showHeartAnim,
             enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
@@ -310,7 +435,7 @@ fun ReelItem(
             Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(110.dp))
         }
 
-        // Visible Pause Indicator
+        // Pause indicator
         AnimatedVisibility(
             visible = isManuallyPaused,
             enter = fadeIn() + scaleIn(),
@@ -320,14 +445,14 @@ fun ReelItem(
             Box(
                 modifier = Modifier
                     .size(80.dp)
-                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                    .background(Color.Black.copy(alpha = 0.45f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(50.dp))
             }
         }
 
-        // Professional UI Overlay Gradients
+        // Bottom gradient overlay
         Box(modifier = Modifier.fillMaxSize().background(
             Brush.verticalGradient(
                 0.55f to Color.Transparent,
@@ -336,6 +461,7 @@ fun ReelItem(
             )
         ))
 
+        // Bottom-left info
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -357,6 +483,7 @@ fun ReelItem(
                                 .background(Color.White, CircleShape)
                                 .clickable {
                                     viewModel.enrollInCourse(course.id, lesson.id)
+                                    SoundManager.playEnroll()
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                             contentAlignment = Alignment.Center
@@ -381,6 +508,7 @@ fun ReelItem(
                 Button(
                     onClick = { 
                         viewModel.completeLesson(lesson.id)
+                        SoundManager.playComplete()
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
                     },
@@ -423,6 +551,7 @@ fun ReelItem(
                 activeColor = Color.Red,
                 onClick = { 
                     viewModel.toggleLike(lesson.id)
+                    SoundManager.playLike()
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
@@ -431,6 +560,7 @@ fun ReelItem(
                 label = if (lessonComments.isEmpty()) "Chat" else lessonComments.size.toString(),
                 onClick = { 
                     showComments = true 
+                    SoundManager.playComment()
                     viewModel.loadComments(lesson.id)
                 }
             )
@@ -448,6 +578,7 @@ fun ReelItem(
                 activeColor = Color(0xFFFFD700),
                 onClick = { 
                     viewModel.toggleSave(lesson.id)
+                    SoundManager.playSave()
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
@@ -481,7 +612,45 @@ fun ReelItem(
                 lessonId = lesson.id,
                 comments = lessonComments,
                 onDismiss = { showComments = false },
-                onSendComment = { viewModel.addComment(lesson.id, it) }
+                onSendComment = { 
+                    viewModel.addComment(lesson.id, it)
+                    SoundManager.playComment()
+                }
+            )
+        }
+    }
+}
+
+// ─── YouTube-style seek overlay ──────────────────────────────────────────────
+
+@Composable
+private fun SeekIndicator(forward: Boolean, tapCount: Int) {
+    val seconds = tapCount * 10
+    Box(
+        modifier = Modifier
+            .size(width = 100.dp, height = 140.dp)
+            .clip(
+                if (forward)
+                    RoundedCornerShape(topStart = 120.dp, bottomStart = 120.dp)
+                else
+                    RoundedCornerShape(topEnd = 120.dp, bottomEnd = 120.dp)
+            )
+            .background(Color.White.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = if (forward) Icons.Default.Forward10 else Icons.Default.Replay10,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(36.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (seconds > 0) "$seconds sec" else "${if (forward) "+" else "-"}10 sec",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
             )
         }
     }
@@ -580,7 +749,8 @@ fun YouTubePlayer(
     isReel: Boolean = false, 
     isPlaying: Boolean = true,
     isMutedGlobal: Boolean = false,
-    onMuteToggle: (Boolean) -> Unit = {}
+    onMuteToggle: (Boolean) -> Unit = {},
+    onWebViewReady: (WebView) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -672,6 +842,10 @@ fun YouTubePlayer(
         }
     }
 
+    LaunchedEffect(webView) {
+        onWebViewReady(webView)
+    }
+
     DisposableEffect(lifecycleOwner, webView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -707,44 +881,44 @@ fun YouTubePlayer(
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White.copy(alpha = 0.5f))
         }
 
-        if (isPlaying) {
+        if (isPlaying && !isReel) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                // Mute button only for deep dives (reels have it in sidebar)
-                if (!isReel) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        IconButton(
-                            onClick = { onMuteToggle(!isMutedGlobal) },
-                            modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(if (isMutedGlobal) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White)
-                        }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    IconButton(
+                        onClick = { onMuteToggle(!isMutedGlobal) },
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                    ) {
+                        Icon(if (isMutedGlobal) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White)
                     }
-                } else {
-                    Spacer(modifier = Modifier.height(1.dp))
                 }
 
-                // Skip buttons only for deep dives
-                if (!isReel) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { webView.evaluateJavascript("seek(-10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
-                            Icon(Icons.Default.Replay10, null, tint = Color.White, modifier = Modifier.size(32.dp))
-                        }
-                        Spacer(modifier = Modifier.width(48.dp))
-                        IconButton(onClick = { webView.evaluateJavascript("seek(10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
-                            Icon(Icons.Default.Forward10, null, tint = Color.White, modifier = Modifier.size(32.dp))
-                        }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { webView.evaluateJavascript("seek(-10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
+                        Icon(Icons.Default.Replay10, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
+                    Spacer(modifier = Modifier.width(48.dp))
+                    IconButton(onClick = { webView.evaluateJavascript("seek(10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
+                        Icon(Icons.Default.Forward10, null, tint = Color.White, modifier = Modifier.size(32.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(120.dp))
             }
 
-            // Progress Bar at the very bottom
             LinearProgressIndicator(
                 progress = { videoProgress },
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp),
                 color = Color.White.copy(alpha = 0.8f),
                 trackColor = Color.White.copy(alpha = 0.2f)
+            )
+        }
+
+        if (isPlaying && isReel) {
+            LinearProgressIndicator(
+                progress = { videoProgress },
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp),
+                color = AppColors.Primary.copy(alpha = 0.9f),
+                trackColor = Color.White.copy(alpha = 0.15f)
             )
         }
     }
