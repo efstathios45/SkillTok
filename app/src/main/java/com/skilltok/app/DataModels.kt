@@ -3,14 +3,18 @@ package com.skilltok.app
 data class User(
     val id: String = "",
     val name: String = "",
+    val username: String = "",
     val email: String = "",
     val role: String = "learner", // "learner", "instructor"
     val xp: Int = 0,
     val streak: Int = 0,
     val level: Int = 1,
+    val photoUrl: String? = null,
+    val bio: String? = null,
     val interests: List<String> = emptyList(),
     val goals: List<String> = emptyList(),
-    val onboardingCompleted: Boolean = false
+    val onboardingCompleted: Boolean = false,
+    val savedVideosCount: Int = 0
 )
 
 data class Course(
@@ -22,6 +26,10 @@ data class Course(
     val thumbnailUrl: String = "",
     val rating: Double = 4.5,
     val learnersCount: Int = 0,
+    val isPublished: Boolean = false,
+    val source: String = "user", // "user" or "ai"
+    val generationStatus: String? = null,
+    val originalPrompt: String? = null,
     val createdAt: String = "",
     val createdByUserId: String = ""
 )
@@ -41,10 +49,14 @@ data class Lesson(
     val title: String = "",
     val description: String = "",
     val videoUrl: String = "",
+    val lessonType: String = "video", // "video", "quiz", "article"
     val durationSeconds: Int = 0,
     val orderIndex: Int = 0,
     val type: String = "reel", // "reel" or "deep_dive"
-    val hasQuiz: Boolean = false
+    val hasQuiz: Boolean = false,
+    val contentUrl: String = "",
+    val resourceUrl: String? = null,
+    val quizData: String? = null
 )
 
 data class QuizQuestion(
@@ -58,14 +70,28 @@ data class QuizQuestion(
     val explanation: String = ""
 )
 
-data class Grade(
+data class ReelComment(
     val id: String = "",
+    val lessonId: String = "",
     val userId: String = "",
-    val referenceId: String = "",
-    val referenceType: String = "module", // "reel_checkpoint", "module", "final"
-    val score: Int = 0,
-    val total: Int = 0,
-    val timestamp: Long = System.currentTimeMillis()
+    val userName: String = "",
+    val text: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+data class ReelLike(
+    val userId: String = "",
+    val lessonId: String = ""
+)
+
+data class CourseReview(
+    val id: String = "",
+    val courseId: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val rating: Int = 5,
+    val comment: String = "",
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 data class Enrollment(
@@ -75,23 +101,6 @@ data class Enrollment(
     val status: String = "in_progress",
     val progressPercent: Int = 0,
     val currentLessonId: String = "",
+    val enrolledAt: String = "",
     val startedAt: String = ""
-)
-
-data class LessonCompletion(
-    val id: String = "",
-    val userId: String = "",
-    val lessonId: String = "",
-    val completedAt: String = "",
-    val quizScore: Int? = null,
-    val timestamp: Long = System.currentTimeMillis()
-)
-
-data class ReelComment(
-    val id: String = "",
-    val lessonId: String = "",
-    val userId: String = "",
-    val userName: String = "",
-    val text: String = "",
-    val createdAt: String = ""
 )

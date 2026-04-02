@@ -15,6 +15,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -160,8 +162,17 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: NavHostController, viewModel: MainViewModel) {
     val courses by viewModel.courses.collectAsState()
     val course = courses.find { it.id == courseId } ?: return
-    val lessons = MockData.lessons.filter { it.courseId == courseId && it.type == "reel" }
-    if (lessons.isEmpty()) return
+    
+    // FETCH LESSONS FROM VIEWMODEL (which handles cloud/mock fallback)
+    val lessonsFlow = remember(courseId) { viewModel.getModuleLessonsForReels(courseId) }
+    val lessons by lessonsFlow.collectAsState(initial = emptyList())
+    
+    if (lessons.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Color.White)
+        }
+        return
+    }
 
     val initialPage = if (startLessonId != null && startLessonId != "first" && startLessonId != "resume") {
         lessons.indexOfFirst { it.id == startLessonId }.coerceAtLeast(0)
@@ -204,26 +215,7 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
             }
             Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(course.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
-                Text("Swipe up for next lesson", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
-            }
-            
-            // Back to Course Detail Button
-            OutlinedButton(
-                onClick = { navController.navigate("course_detail/${course.id}") {
-                    popUpTo("home")
-                } },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                modifier = Modifier.height(32.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.List, null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Course", fontSize = 12.sp)
-            }
+            Text(course.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
         }
     }
 }
@@ -242,11 +234,21 @@ fun ReelItem(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     
-    var isLiked by remember { mutableStateOf(false) }
-    var isSaved by remember { mutableStateOf(false) }
+    val likes by viewModel.likes.collectAsState()
+    val isLiked = likes.contains(lesson.id)
+    
+    val savedVideos by viewModel.savedVideos.collectAsState()
+    val isSaved = savedVideos.contains(lesson.id)
+    
     var showHeartAnim by remember { mutableStateOf(false) }
     var isManuallyPaused by remember { mutableStateOf(false) }
-    var isEnrolled by remember { mutableStateOf(viewModel.isEnrolled(course.id)) }
+    
+    val enrollments by viewModel.enrollments.collectAsState()
+    val isEnrolled = enrollments.any { it.courseId == course.id }
+    
+    val comments by viewModel.comments.collectAsState()
+    val lessonComments = comments[lesson.id] ?: emptyList()
+    var showComments by remember { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "disc")
     val discRotation by infiniteTransition.animateFloat(
@@ -260,7 +262,7 @@ fun ReelItem(
             modifier = Modifier.pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = {
-                        isLiked = true
+                        if (!isLiked) viewModel.toggleLike(lesson.id)
                         showHeartAnim = true
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch { delay(800); showHeartAnim = false }
@@ -321,7 +323,6 @@ fun ReelItem(
                                 .offset(x = 2.dp, y = 2.dp)
                                 .background(Color.White, CircleShape)
                                 .clickable {
-                                    isEnrolled = true
                                     viewModel.enrollInCourse(course.id, lesson.id)
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
@@ -384,22 +385,29 @@ fun ReelItem(
         ) {
             InteractionItem(
                 icon = Icons.Default.Favorite, 
-                label = if (isLiked) "1.3k" else "1.2k", 
+                label = if (isLiked) "Liked" else "Like", 
                 isActive = isLiked, 
                 activeColor = Color.Red,
                 onClick = { 
-                    isLiked = !isLiked
+                    viewModel.toggleLike(lesson.id)
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
-            InteractionItem(Icons.AutoMirrored.Filled.Comment, "45")
+            InteractionItem(
+                icon = Icons.AutoMirrored.Filled.Comment, 
+                label = if (lessonComments.isEmpty()) "Chat" else lessonComments.size.toString(),
+                onClick = { 
+                    showComments = true 
+                    viewModel.loadComments(lesson.id)
+                }
+            )
             InteractionItem(
                 icon = Icons.Default.Bookmark, 
                 label = if (isSaved) "Saved" else "Save", 
                 isActive = isSaved, 
                 activeColor = Color(0xFFFFD700),
                 onClick = { 
-                    isSaved = !isSaved
+                    viewModel.toggleSave(lesson.id)
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
@@ -426,6 +434,74 @@ fun ReelItem(
             ) {
                 Icon(Icons.Default.School, null, tint = Color.White, modifier = Modifier.size(20.dp))
             }
+        }
+
+        if (showComments) {
+            CommentsBottomSheet(
+                lessonId = lesson.id,
+                comments = lessonComments,
+                onDismiss = { showComments = false },
+                onSendComment = { viewModel.addComment(lesson.id, it) }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CommentsBottomSheet(
+    lessonId: String,
+    comments: List<ReelComment>,
+    onDismiss: () -> Unit,
+    onSendComment: (String) -> Unit
+) {
+    var commentText by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState()
+    
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+        Column(modifier = Modifier.fillMaxHeight(0.6f).padding(16.dp)) {
+            Text("Comments", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(comments) { comment ->
+                    Row(modifier = Modifier.padding(vertical = 8.dp)) {
+                        Box(modifier = Modifier.size(32.dp).background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
+                            Text(comment.userName.ifBlank { "U" }.take(1).uppercase(), color = Color.White, fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(comment.userName.ifBlank { "Learner" }, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(comment.text, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+            
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
+                OutlinedTextField(
+                    value = commentText,
+                    onValueChange = { commentText = it },
+                    placeholder = { Text("Add a comment...") },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                IconButton(onClick = { 
+                    if (commentText.isNotBlank()) {
+                        onSendComment(commentText)
+                        commentText = ""
+                    }
+                }) {
+                    Icon(Icons.AutoMirrored.Filled.Send, null, tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -503,7 +579,7 @@ fun YouTubePlayer(
                                 ready = true;
                                 window.Android.onReady();
                                 event.target.playVideo();
-                                if (${isMutedGlobal}) event.target.mute();
+                                if ($isMutedGlobal) event.target.mute();
                                 setInterval(updateProgress, 1000);
                             },
                             'onStateChange': function(event) {
@@ -648,7 +724,7 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 title = { Text("Progress", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)

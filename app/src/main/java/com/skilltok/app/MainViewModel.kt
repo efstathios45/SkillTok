@@ -1,14 +1,17 @@
 package com.skilltok.app
 
 import android.app.Application
-import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.*
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 sealed class EnrollmentState {
     object Idle : EnrollmentState()
@@ -21,11 +24,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FirebaseRepository()
     private val auth = FirebaseAuth.getInstance()
     private val db = SkillTokDatabase.getDatabase(application).dao()
-    private val prefs = application.getSharedPreferences("skilltok_prefs", Context.MODE_PRIVATE)
 
-    private val _currentUser = MutableStateFlow<User?>(null)
-    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
-
+    // --- BULLETPROOF INITIALIZATION: Always start with MockData ---
     private val _courses = MutableStateFlow<List<Course>>(MockData.courses)
     val courses: StateFlow<List<Course>> = _courses.asStateFlow()
 
@@ -35,231 +35,350 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _enrollmentState = MutableStateFlow<EnrollmentState>(EnrollmentState.Idle)
     val enrollmentState: StateFlow<EnrollmentState> = _enrollmentState.asStateFlow()
 
-    private val _isDarkMode = MutableStateFlow(prefs.getBoolean("dark_mode", true))
-    val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
+    private val _userProfile = MutableStateFlow<User?>(null)
+    val userProfile: StateFlow<User?> = _userProfile.asStateFlow()
+
+    private val _comments = MutableStateFlow<Map<String, List<ReelComment>>>(emptyMap())
+    val comments: StateFlow<Map<String, List<ReelComment>>> = _comments.asStateFlow()
+
+    private val _likes = MutableStateFlow<Set<String>>(emptySet())
+    val likes: StateFlow<Set<String>> = _likes.asStateFlow()
+
+    private val _savedVideos = MutableStateFlow<Set<String>>(emptySet())
+    val savedVideos: StateFlow<Set<String>> = _savedVideos.asStateFlow()
+
+    private val _reviews = MutableStateFlow<Map<String, List<CourseReview>>>(emptyMap())
+    val reviews: StateFlow<Map<String, List<CourseReview>>> = _reviews.asStateFlow()
+
+    private var userDataJob: Job? = null
+    private val activeCommentJobs = mutableMapOf<String, Job>()
+    private var isSeeding = false
 
     init {
+        // 1. First, try to load from Room (if any previously saved)
+        loadLocalData()
+        // 2. Then, try to sync with Firebase
+        loadCourses()
+        observeAuthState()
+    }
+
+    private fun loadLocalData() {
+        viewModelScope.launch {
+            db.getAllCourses().collect { locals ->
+                if (locals.isNotEmpty()) {
+                    _courses.value = locals.map { 
+                        Course(
+                            id = it.firebaseId ?: "",
+                            title = it.title,
+                            description = it.description,
+                            thumbnailUrl = it.thumbnailUrl,
+                            subject = it.subject,
+                            level = it.level
+                        ) 
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadCourses() {
+        viewModelScope.launch {
+            repository.getRemoteCourses().collect { remoteCourses ->
+                if (remoteCourses.isNotEmpty()) {
+                    // Update UI with real cloud data
+                    _courses.value = remoteCourses
+                    // Sync to Local Cache
+                    remoteCourses.forEach { 
+                        db.insertCourse(
+                            LocalCourseEntity(
+                                firebaseId = it.id,
+                                title = it.title,
+                                description = it.description,
+                                thumbnailUrl = it.thumbnailUrl,
+                                subject = it.subject,
+                                level = it.level
+                            )
+                        ) 
+                    }
+                } else if (auth.currentUser != null && !isSeeding) {
+                    // Cloud is empty but we are logged in -> SEED IT
+                    seedDatabase()
+                }
+            }
+        }
+    }
+
+    private suspend fun seedDatabase() {
+        if (isSeeding) return
+        val user = auth.currentUser ?: return
+        isSeeding = true
+        Log.d("MainViewModel", "Syncing Cloud SQL with MockData...")
+        
+        try {
+            MockData.courses.forEach { mockCourse ->
+                val newCourseId = repository.addCourse(mockCourse)
+                if (newCourseId != null) {
+                    MockData.modules.filter { it.courseId == mockCourse.id }.forEach { mockModule ->
+                        val newModuleId = repository.addModule(mockModule.copy(courseId = newCourseId))
+                        if (newModuleId != null) {
+                            MockData.lessons.filter { it.moduleId == mockModule.id }.forEach { mockLesson ->
+                                val newLessonId = repository.addLesson(mockLesson.copy(moduleId = newModuleId, courseId = newCourseId))
+                                if (newLessonId != null && mockLesson.type == "reel") {
+                                    repository.addReel(mockLesson, newLessonId)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Log.d("MainViewModel", "Cloud Seeding Finished Successfully")
+            // Reload courses from the cloud we just filled
+            repository.getRemoteCourses().collect { if (it.isNotEmpty()) _courses.value = it }
+        } catch (e: Exception) {
+            Log.e("MainViewModel", "Cloud Seed Failed: ${e.message}. (Ensure you ran firebase deploy)")
+        } finally {
+            isSeeding = false
+        }
+    }
+
+    private fun observeAuthState() {
         viewModelScope.launch {
             auth.authStateFlow().collect { firebaseUser ->
                 if (firebaseUser != null) {
-                    observeUser(firebaseUser.uid)
-                    syncLocalData(firebaseUser.uid)
+                    syncUserToDatabase(firebaseUser)
+                    loadUserData(firebaseUser.uid)
+                    loadCourses()
                 } else {
-                    _currentUser.value = null
-                    _enrollments.value = emptyList()
-                }
-            }
-        }
-        observeCourses()
-    }
-
-    fun toggleTheme(darkMode: Boolean) {
-        _isDarkMode.value = darkMode
-        prefs.edit().putBoolean("dark_mode", darkMode).apply()
-    }
-
-    private fun observeUser(uid: String) {
-        viewModelScope.launch {
-            db.getUserProfile(uid).collect { localUser ->
-                if (localUser != null) {
-                    val current = _currentUser.value
-                    _currentUser.value = User(
-                        id = localUser.id,
-                        name = localUser.name,
-                        email = localUser.email,
-                        xp = localUser.xp,
-                        streak = localUser.streak,
-                        level = localUser.level,
-                        interests = current?.interests ?: emptyList(),
-                        goals = current?.goals ?: emptyList(),
-                        onboardingCompleted = current?.onboardingCompleted ?: false
-                    )
-                }
-            }
-        }
-
-        viewModelScope.launch {
-            repository.getUserProfile(uid).collect { remoteUser ->
-                if (remoteUser != null) {
-                    _currentUser.value = remoteUser
-                    db.insertUserProfile(LocalUserEntity(
-                        remoteUser.id, remoteUser.name, remoteUser.email, 
-                        remoteUser.xp, remoteUser.streak, remoteUser.level
-                    ))
-                } else {
-                    val fallback = User(id = uid, email = auth.currentUser?.email ?: "", name = auth.currentUser?.displayName ?: "New Learner")
-                    _currentUser.value = fallback
+                    clearUserData()
                 }
             }
         }
     }
 
-    private fun observeCourses() {
-        viewModelScope.launch {
-            repository.getCourses().collect { coursesList ->
-                if (coursesList.isNotEmpty()) {
-                    _courses.value = coursesList
+    private fun clearUserData() {
+        userDataJob?.cancel()
+        activeCommentJobs.values.forEach { it.cancel() }
+        activeCommentJobs.clear()
+        _userProfile.value = null
+        _enrollments.value = emptyList()
+        _likes.value = emptySet()
+        _savedVideos.value = emptySet()
+        _comments.value = emptyMap()
+        _reviews.value = emptyMap()
+    }
+
+    private fun loadUserData(uid: String) {
+        userDataJob?.cancel()
+        userDataJob = viewModelScope.launch {
+            // Immediate local load for profile
+            launch {
+                db.getUserProfile(uid).collect { local ->
+                    if (local != null && _userProfile.value == null) {
+                        _userProfile.value = User(
+                            id = local.id,
+                            name = local.name,
+                            email = local.email,
+                            xp = local.xp,
+                            streak = local.streak,
+                            level = local.level
+                        )
+                    }
                 }
+            }
+            // Fetch cloud profile and update local
+            launch {
+                repository.getUserProfile(uid).collect { remoteUser ->
+                    if (remoteUser != null) {
+                        _userProfile.value = remoteUser
+                        db.insertUserProfile(
+                            LocalUserEntity(
+                                id = remoteUser.id,
+                                name = remoteUser.name,
+                                email = remoteUser.email,
+                                xp = remoteUser.xp,
+                                streak = remoteUser.streak,
+                                level = remoteUser.level
+                            )
+                        )
+                    }
+                }
+            }
+            // Cloud sync for social interactions
+            launch { repository.getEnrollments(uid).collect { _enrollments.value = it } }
+            launch { repository.getUserSaved(uid).collect { _savedVideos.value = it.toSet() } }
+            launch { repository.getUserLikes(uid).collect { _likes.value = it.toSet() } }
+        }
+    }
+
+    suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null) {
+        val newUser = User(
+            id = firebaseUser.uid,
+            name = customName ?: firebaseUser.displayName ?: "Learner",
+            email = firebaseUser.email ?: "",
+            photoUrl = firebaseUser.photoUrl?.toString()
+        )
+        repository.updateUserProfile(newUser)
+        _userProfile.value = newUser
+        db.insertUserProfile(
+            LocalUserEntity(
+                id = newUser.id,
+                name = newUser.name,
+                email = newUser.email,
+                xp = 0,
+                streak = 0,
+                level = 1
+            )
+        )
+    }
+
+    fun toggleLike(lessonId: String) {
+        val uid = auth.currentUser?.uid ?: return
+        val currentlyLiked = _likes.value.contains(lessonId)
+        viewModelScope.launch {
+            if (currentlyLiked) _likes.value -= lessonId else _likes.value += lessonId
+            repository.toggleLike(uid, lessonId, !currentlyLiked)
+            db.insertInteraction(LocalInteractionEntity("${uid}_$lessonId", uid, lessonId, !currentlyLiked))
+        }
+    }
+
+    fun toggleSave(lessonId: String) {
+        val uid = auth.currentUser?.uid ?: return
+        val currentlySaved = _savedVideos.value.contains(lessonId)
+        viewModelScope.launch {
+            if (currentlySaved) {
+                _savedVideos.value -= lessonId
+                repository.toggleSave(uid, lessonId, false)
+                db.deleteSaved(uid, lessonId)
+            } else {
+                _savedVideos.value += lessonId
+                repository.toggleSave(uid, lessonId, true)
+                db.insertSaved(LocalSavedEntity("${uid}_$lessonId", uid, lessonId))
+            }
+        }
+    }
+
+    fun addComment(lessonId: String, text: String) {
+        val user = _userProfile.value ?: return
+        val commentId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+        val comment = ReelComment(commentId, lessonId, user.id, user.name, text, timestamp)
+        viewModelScope.launch {
+            db.insertComment(LocalCommentEntity(commentId, lessonId, user.id, user.name, text, timestamp))
+            repository.addComment(comment)
+            loadComments(lessonId)
+        }
+    }
+
+    fun loadComments(lessonId: String) {
+        if (activeCommentJobs.containsKey(lessonId)) return
+        activeCommentJobs[lessonId] = viewModelScope.launch {
+            db.getComments(lessonId).collect { locals ->
+                _comments.value += (lessonId to locals.map { ReelComment(it.id, it.lessonId, it.userId, it.userName, it.text, it.createdAt) })
+            }
+        }
+        viewModelScope.launch {
+            repository.getComments(lessonId).collect { remotes ->
+                remotes.forEach { db.insertComment(LocalCommentEntity(it.id, it.lessonId, it.userId, it.userName, it.text, it.createdAt)) }
             }
         }
     }
 
     fun completeOnboarding(interests: List<String>, goals: List<String>) {
-        val user = _currentUser.value ?: return
-        val updatedUser = user.copy(
-            interests = interests,
-            goals = goals,
-            onboardingCompleted = true
-        )
-        _currentUser.value = updatedUser
-        
+        val user = _userProfile.value ?: return
+        val updated = user.copy(interests = interests, goals = goals, onboardingCompleted = true)
+        _userProfile.value = updated
         viewModelScope.launch {
-            repository.updateUserProfile(updatedUser)
-            db.insertUserProfile(LocalUserEntity(
-                updatedUser.id, updatedUser.name, updatedUser.email,
-                updatedUser.xp, updatedUser.streak, updatedUser.level
-            ))
-        }
-    }
-
-    private fun syncLocalData(uid: String) {
-        viewModelScope.launch {
-            repository.getEnrollments(uid).collect { remoteEnrollments ->
-                _enrollments.value = remoteEnrollments
-                remoteEnrollments.forEach { e ->
-                    db.insertEnrollment(LocalEnrollmentEntity(
-                        "${e.userId}_${e.courseId}", e.userId, e.courseId, e.status, e.progressPercent, e.currentLessonId
-                    ))
-                }
-            }
-            
-            val unsynced = db.getUnsyncedCompletions()
-            unsynced.forEach { c ->
-                repository.completeLesson(c.userId, c.lessonId)
-                db.updateCompletion(c.copy(synced = true))
-            }
-        }
-    }
-
-    fun logout() {
-        auth.signOut()
-    }
-
-    fun resetEnrollmentState() {
-        _enrollmentState.value = EnrollmentState.Idle
-    }
-
-    fun enrollInCourse(courseId: String, startLessonId: String? = null) {
-        val uid = auth.currentUser?.uid ?: run {
-            _enrollmentState.value = EnrollmentState.Error("Please log in to enroll")
-            return
-        }
-        
-        viewModelScope.launch {
-            _enrollmentState.value = EnrollmentState.Loading
-            try {
-                val finalLessonId = if (startLessonId != null) {
-                    startLessonId
-                } else {
-                    // dynamically find the first lesson
-                    val modules = getCourseModules(courseId).first()
-                    val firstModuleId = modules.firstOrNull()?.id
-                    if (firstModuleId != null) {
-                        getModuleLessons(firstModuleId).first().firstOrNull()?.id
-                    } else null
-                }
-
-                if (finalLessonId == null) {
-                    _enrollmentState.value = EnrollmentState.Error("This course doesn't have any lessons yet")
-                    return@launch
-                }
-
-                repository.enrollInCourse(uid, courseId, finalLessonId)
-                
-                // Optimistic local update
-                db.insertEnrollment(LocalEnrollmentEntity(
-                    "${uid}_$courseId", uid, courseId, "in_progress", 0, finalLessonId
-                ))
-                
-                // Refresh enrollment list
-                val updatedEnrollments = repository.getEnrollments(uid).first()
-                _enrollments.value = updatedEnrollments
-                
-                _enrollmentState.value = EnrollmentState.Success(courseId)
-            } catch (e: Exception) {
-                _enrollmentState.value = EnrollmentState.Error("Enrollment failed: ${e.message}")
-            }
-        }
-    }
-
-    fun isEnrolled(courseId: String): Boolean {
-        return _enrollments.value.any { it.courseId == courseId }
-    }
-
-    fun getCourseModules(courseId: String): Flow<List<Module>> {
-        return repository.getModules(courseId).map { 
-            if (it.isEmpty()) MockData.modules.filter { m -> m.courseId == courseId } else it
-        }
-    }
-
-    fun getModuleLessons(moduleId: String): Flow<List<Lesson>> {
-        return repository.getLessons(moduleId).map {
-            if (it.isEmpty()) MockData.lessons.filter { l -> l.moduleId == moduleId } else it
-        }
-    }
-
-    fun getLessonQuiz(lessonId: String): Flow<List<QuizQuestion>> {
-        return repository.getQuizQuestions(lessonId)
-    }
-
-    fun completeLesson(lessonId: String, score: Int? = null) {
-        val uid = auth.currentUser?.uid ?: return
-        viewModelScope.launch {
-            db.insertCompletion(LocalCompletionEntity(
-                userId = uid,
-                lessonId = lessonId,
-                completedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).format(java.util.Date()),
-                synced = false
-            ))
-            
-            try {
-                repository.completeLesson(uid, lessonId, score)
-                val latest = db.getUnsyncedCompletions().lastOrNull { it.lessonId == lessonId }
-                if (latest != null) db.updateCompletion(latest.copy(synced = true))
-            } catch (e: Exception) {
-            }
-        }
-    }
-
-    fun createCourse(title: String, description: String, subject: String, level: String, modulesData: List<ModuleData>) {
-        val uid = auth.currentUser?.uid ?: return
-        viewModelScope.launch {
-            val course = Course(
-                title = title,
-                description = description,
-                subject = subject,
-                level = level,
-                createdByUserId = uid
+            repository.updateUserProfile(updated)
+            db.insertUserProfile(
+                LocalUserEntity(
+                    id = updated.id,
+                    name = updated.name,
+                    email = updated.email,
+                    xp = updated.xp,
+                    streak = updated.streak,
+                    level = updated.level
+                )
             )
-            val courseId = repository.addCourse(course)
-            if (courseId != null) {
-                modulesData.forEachIndexed { mIndex, mData ->
-                    val moduleId = repository.addModule(Module(courseId = courseId, title = mData.title, orderIndex = mIndex))
-                    if (moduleId != null) {
-                        mData.lessons.forEachIndexed { lIndex, lData ->
-                            repository.addLesson(Lesson(
-                                moduleId = moduleId,
-                                courseId = courseId,
-                                title = lData.title,
-                                description = lData.description,
-                                videoUrl = lData.videoUrl,
-                                orderIndex = lIndex
-                            ))
-                        }
+        }
+    }
+
+    fun getCourseModules(courseId: String): Flow<List<Module>> = repository.getModules(courseId).map { 
+        if (it.isEmpty()) MockData.modules.filter { m -> m.courseId == courseId } else it
+    }
+    fun getModuleLessons(moduleId: String): Flow<List<Lesson>> = repository.getLessons(moduleId).map {
+        if (it.isEmpty()) MockData.lessons.filter { l -> l.moduleId == moduleId } else it
+    }
+
+    fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> = flow {
+        // EMIT MOCK DATA IMMEDIATELY
+        val initial = MockData.lessons.filter { it.courseId == courseId }
+        emit(initial)
+
+        // THEN TRY TO LOAD FROM FIREBASE
+        repository.getModules(courseId).collect { mods ->
+            if (mods.isNotEmpty()) {
+                val allLessons = mutableListOf<Lesson>()
+                for (mod in mods) {
+                    repository.getLessons(mod.id).collect { lessons ->
+                        allLessons.addAll(lessons)
+                        // Emit as we find them to avoid "loading forever"
+                        if (allLessons.isNotEmpty()) emit(allLessons.toList())
                     }
                 }
             }
         }
+    }
+
+    fun resetEnrollmentState() { _enrollmentState.value = EnrollmentState.Idle }
+
+    fun enrollInCourse(courseId: String, startLessonId: String? = null) {
+        val uid = auth.currentUser?.uid ?: return
+        viewModelScope.launch {
+            _enrollmentState.value = EnrollmentState.Loading
+            try {
+                repository.enrollInCourse(uid, courseId)
+                db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
+                _enrollments.value += Enrollment(courseId = courseId)
+                _enrollmentState.value = EnrollmentState.Success(courseId)
+            } catch (e: Exception) {
+                _enrollmentState.value = EnrollmentState.Error(e.message ?: "Enrollment failed")
+            }
+        }
+    }
+
+    fun isEnrolled(courseId: String): Boolean = _enrollments.value.any { it.courseId == courseId }
+
+    fun completeLesson(lessonId: String) {
+        val uid = auth.currentUser?.uid ?: return
+        viewModelScope.launch {
+            repository.completeLesson(uid, lessonId)
+            db.insertCompletion(LocalCompletionEntity(userId = uid, lessonId = lessonId, completedAt = System.currentTimeMillis().toString()))
+        }
+    }
+
+    fun createCourse(title: String, description: String, subject: String, level: String, modules: List<ModuleData>) {
+        val uid = auth.currentUser?.uid ?: return
+        viewModelScope.launch {
+            val courseId = repository.addCourse(Course(title = title, description = description, subject = subject, level = level, createdByUserId = uid))
+            if (courseId != null) {
+                modules.forEachIndexed { mIdx, mData ->
+                    val moduleId = repository.addModule(Module(courseId = courseId, title = mData.title, orderIndex = mIdx))
+                    if (moduleId != null) {
+                        mData.lessons.forEachIndexed { lIdx, lData ->
+                            repository.addLesson(Lesson(moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video"))
+                        }
+                    }
+                }
+                loadCourses()
+            }
+        }
+    }
+
+    fun loadReviews(courseId: String) {}
+    fun addReview(review: CourseReview) {}
+
+    fun logout() {
+        auth.signOut()
     }
 }
 

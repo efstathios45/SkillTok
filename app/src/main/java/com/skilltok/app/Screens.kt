@@ -19,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -32,7 +31,6 @@ import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -139,7 +137,9 @@ fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
         modifier = Modifier.fillMaxSize().background(Color.Black)
     ) { page ->
         val course = courses[page]
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().clickable {
+            navController.navigate("reels/${course.id}/resume")
+        }) {
             AsyncImage(
                 model = course.thumbnailUrl,
                 contentDescription = null,
@@ -313,7 +313,7 @@ fun NotificationsScreen() {
 }
 
 @Composable
-fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, onSettingsClick: () -> Unit) {
+fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, onSettingsClick: () -> Unit, navController: NavHostController) {
     if (user == null) return
 
     Column(
@@ -352,7 +352,7 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        ProfileMenuItem(Icons.Default.School, "My Courses")
+        ProfileMenuItem(Icons.Default.School, "My Courses", onClick = { navController.navigate("my_courses") })
         ProfileMenuItem(Icons.Default.WorkspacePremium, "Certificates")
         ProfileMenuItem(Icons.Default.AddBox, "Create a Course", onClick = onAddCourse)
         ProfileMenuItem(Icons.AutoMirrored.Filled.Logout, "Sign Out", color = Color.Red, onClick = onLogout)
@@ -401,7 +401,6 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
     val isEnrolled = viewModel.isEnrolled(courseId)
     val enrollmentState by viewModel.enrollmentState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     
     LaunchedEffect(enrollmentState) {
         when (enrollmentState) {
@@ -513,6 +512,67 @@ fun ModuleListItem(module: Module, viewModel: MainViewModel, navController: NavH
                 Text(lesson.title, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
                 Text("${lesson.durationSeconds / 60}m", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+    }
+}
+
+@Composable
+fun MyCoursesScreen(navController: NavHostController, viewModel: MainViewModel) {
+    val enrollments by viewModel.enrollments.collectAsState()
+    val allCourses by viewModel.courses.collectAsState()
+    val myCourses = allCourses.filter { course -> enrollments.any { it.courseId == course.id } }
+
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Text("My Learning", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
+        }
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        if (myCourses.isEmpty()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("You haven't enrolled in any courses yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                items(myCourses) { course ->
+                    CourseFeedItem(course) {
+                        navController.navigate("course_detail/${course.id}")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SavedVideosScreen(navController: NavHostController, viewModel: MainViewModel) {
+    val savedIds by viewModel.savedVideos.collectAsState()
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+            }
+            Text("Saved Reels", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
+        }
+        
+        Spacer(modifier = Modifier.height(40.dp))
+        
+        if (savedIds.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(Icons.Default.BookmarkBorder, null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("No saved videos yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            Text("You have ${savedIds.size} saved videos.", color = MaterialTheme.colorScheme.onBackground)
         }
     }
 }

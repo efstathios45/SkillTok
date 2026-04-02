@@ -5,6 +5,6 @@
     <string name="package_name">com.skilltok.app</string>
     <string name="custom_url_scheme">com.skilltok.app</string>
 
-    <!-- Replace the value below with your actual Web Client ID from Google Console -->
-    <string name="google_server_client_id">YOUR_WEB_CLIENT_ID_HERE.apps.googleusercontent.com</string>
+    <!-- Google Web Client ID from google-services.json (client_type 3) -->
+    <string name="google_server_client_id">498552754372-6i53udu5vf07bk7hdj1jma8trl3ee4ke.apps.googleusercontent.com</string>
 </resources>

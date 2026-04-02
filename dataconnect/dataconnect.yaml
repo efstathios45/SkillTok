@@ -1,0 +1,12 @@
+specVersion: "v1alpha"
+serviceId: "skilltokfinal-2-service"
+location: "europe-west4"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "skilltokfinal-2-database"
+      cloudSql:
+        instanceId: "skilltokfinal-instance"
+connectorDirs:
+  - "./connector"

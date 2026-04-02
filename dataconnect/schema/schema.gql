@@ -1,0 +1,120 @@
+# SkillTok Ultimate Secure PostgreSQL Schema
+
+# --- IDENTITY & PROFILES ---
+type User @table(key: "id") {
+  id: String!
+  displayName: String!
+  email: String!
+  photoUrl: String
+  bio: String
+  role: String! @default(value: "learner")
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+# --- CONTENT: STRUCTURED COURSES ---
+type Course @table {
+  owner: User!
+  title: String!
+  description: String!
+  thumbnailUrl: String!
+  subject: String!
+  level: String! @default(value: "Beginner")
+  isPublished: Boolean! @default(value: false)
+  source: String! @default(value: "user")
+  generationStatus: String
+  originalPrompt: String
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type Module @table {
+  course: Course!
+  title: String!
+  description: String
+  orderIndex: Int!
+}
+
+type Lesson @table {
+  module: Module!
+  title: String!
+  description: String!
+  lessonType: String!
+  orderIndex: Int!
+  contentUrl: String!
+  resourceUrl: String
+  quizData: String
+}
+
+# --- LEARNING PATHS ---
+type LearningPath @table {
+  creator: User!
+  name: String!
+  description: String!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type LearningPathCourse @table(key: ["learningPathId", "courseId"]) {
+  learningPathId: UUID!
+  learningPath: LearningPath!
+  courseId: UUID!
+  course: Course!
+  orderIndex: Int!
+}
+
+# --- LMS LOGIC: ENROLLMENT & PROGRESS ---
+type Enrollment @table(key: ["userId", "courseId"]) {
+  userId: String!
+  user: User!
+  courseId: UUID!
+  course: Course!
+  enrolledAt: Timestamp! @default(expr: "request.time")
+}
+
+type Progress @table(key: ["userId", "lessonId"]) {
+  userId: String!
+  user: User!
+  lessonId: UUID!
+  lesson: Lesson!
+  courseId: UUID!
+  course: Course!
+  isCompleted: Boolean! @default(value: false)
+  quizScore: Float
+  completionPercentage: Float! @default(value: 0.0)
+  lastAccessed: Timestamp! @default(expr: "request.time")
+}
+
+# --- SOCIAL DISCOVERY (TikTok Style) ---
+type Reel @table {
+  creator: User!
+  title: String!
+  description: String!
+  videoUrl: String!
+  viewCount: Int! @default(value: 0)
+  likeCount: Int! @default(value: 0)
+  course: Course
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type Like @table(key: ["userId", "reelId"]) {
+  userId: String!
+  user: User!
+  reelId: UUID!
+  reel: Reel!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type Comment @table {
+  user: User!
+  reel: Reel
+  reelId: UUID
+  course: Course
+  text: String!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
+
+type SavedContent @table(key: ["userId", "reelId"]) {
+  userId: String!
+  user: User!
+  reelId: UUID!
+  reel: Reel!
+  createdAt: Timestamp! @default(expr: "request.time")
+}
