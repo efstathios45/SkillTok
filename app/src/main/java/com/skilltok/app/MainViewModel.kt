@@ -118,7 +118,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             MockData.lessons.filter { it.moduleId == mockModule.id }.forEach { mockLesson ->
                                 val newLessonId = repository.addLesson(mockLesson.copy(moduleId = newModuleId, courseId = newCourseId))
                                 if (newLessonId != null) {
-                                    // Ensure all seeded video content is available in the Reels feed for interactions
                                     repository.addReel(mockLesson.copy(courseId = newCourseId), newLessonId)
                                 }
                             }
@@ -179,9 +178,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-            launch { repository.getEnrollments(uid).collect { _enrollments.value = it } }
-            launch { repository.getUserSaved(uid).collect { _savedVideos.value = it.toSet() } }
-            launch { repository.getUserLikes(uid).collect { _likes.value = it.toSet() } }
+            launch { repository.getEnrollments().collect { _enrollments.value = it } }
+            launch { repository.getUserSaved().collect { _savedVideos.value = it.toSet() } }
+            launch { repository.getUserLikes().collect { _likes.value = it.toSet() } }
         }
     }
 
@@ -197,7 +196,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val currentlyLiked = _likes.value.contains(lessonId)
         viewModelScope.launch {
             if (currentlyLiked) _likes.value -= lessonId else _likes.value += lessonId
-            repository.toggleLike(uid, lessonId, !currentlyLiked)
+            repository.toggleLike(lessonId, !currentlyLiked)
             db.insertInteraction(LocalInteractionEntity("${uid}_$lessonId", uid, lessonId, !currentlyLiked))
         }
     }
@@ -208,11 +207,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             if (currentlySaved) {
                 _savedVideos.value -= lessonId
-                repository.toggleSave(uid, lessonId, false)
+                repository.toggleSave(lessonId, false)
                 db.deleteSaved(uid, lessonId)
             } else {
                 _savedVideos.value += lessonId
-                repository.toggleSave(uid, lessonId, true)
+                repository.toggleSave(lessonId, true)
                 db.insertSaved(LocalSavedEntity("${uid}_$lessonId", uid, lessonId))
             }
         }
@@ -264,6 +263,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> = flow {
         val initial = MockData.lessons.filter { it.courseId == courseId }
         emit(initial)
+        
         repository.getModules(courseId).collect { mods ->
             if (mods.isNotEmpty()) {
                 val allLessons = mutableListOf<Lesson>()
@@ -284,7 +284,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _enrollmentState.value = EnrollmentState.Loading
             try {
-                repository.enrollInCourse(uid, courseId)
+                repository.enrollInCourse(courseId)
                 db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
                 _enrollments.value += Enrollment(courseId = courseId)
                 _enrollmentState.value = EnrollmentState.Success(courseId)
@@ -299,7 +299,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun completeLesson(lessonId: String) {
         val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
-            repository.completeLesson(uid, lessonId)
+            repository.completeLesson(lessonId)
             db.insertCompletion(LocalCompletionEntity(userId = uid, lessonId = lessonId, completedAt = System.currentTimeMillis().toString()))
         }
     }
@@ -316,7 +316,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val lesson = Lesson(moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video", type = "reel")
                             val newLessonId = repository.addLesson(lesson)
                             if (newLessonId != null) {
-                                // Important: Register as Reel to allow comments/likes in the feed
                                 repository.addReel(lesson, newLessonId)
                             }
                         }

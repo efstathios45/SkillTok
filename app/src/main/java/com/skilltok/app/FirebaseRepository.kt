@@ -1,7 +1,6 @@
 package com.skilltok.app
 
 import android.util.Log
-import com.google.firebase.auth.FirebaseAuth
 import com.skilltok.app.dataconnect.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -9,13 +8,14 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 class FirebaseRepository {
-    private val auth = FirebaseAuth.getInstance()
     private val connector = SkilltokConnectorConnector.instance
 
     companion object {
         val idMap = ConcurrentHashMap<String, String>()
-        fun getMockId(remoteId: String): String = idMap[remoteId] ?: remoteId
-        fun registerMapping(remoteId: String, mockId: String) { idMap[remoteId] = mockId }
+        fun getMockId(remoteId: String): String = idMap[remoteId.lowercase()] ?: remoteId
+        fun registerMapping(remoteId: String, mockId: String) { 
+            idMap[remoteId.lowercase()] = mockId 
+        }
     }
 
     private fun String.toUUID(): UUID? {
@@ -27,47 +27,67 @@ class FirebaseRepository {
         } catch (e: Exception) { null }
     }
 
+    private fun extractYoutubeId(url: String): String {
+        if (url.isBlank()) return ""
+        val trimmed = url.trim()
+        val idRegex = "^[a-zA-Z0-9_-]{11}$".toRegex()
+        if (idRegex.matches(trimmed)) return trimmed
+        
+        val patterns = listOf(
+            "(?:v=|(?:be|embed|shorts)/|watch\\?v=)([a-zA-Z0-9_-]{11})".toRegex(),
+            "(?:youtu\\.be/|youtube\\.com/(?:v/|u/\\w/|embed/|watch\\?v=))([a-zA-Z0-9_-]{11})".toRegex()
+        )
+        for (pattern in patterns) {
+            val match = pattern.find(trimmed)
+            val id = match?.groupValues?.get(1)
+            if (id != null && id.length == 11) return id
+        }
+        return ""
+    }
+
     // --- Social Interactions with Foreign Key Safety ---
-    private suspend fun ensureReelExists(lessonId: UUID) {
+    private suspend fun ensureReelExists(lessonId: UUID, lessonContext: Lesson? = null) {
         try {
-            // We attempt to create the reel. If it already exists, Data Connect/Postgres 
-            // will either ignore or we handle the conflict. For simplicity in this logic,
-            // we check if we can find it or just try-catch the insert.
-            val lesson = MockData.lessons.find { it.id == getMockId(lessonId.toString()) }
+            val mockId = getMockId(lessonId.toString())
+            val lesson = lessonContext ?: MockData.lessons.find { it.id == mockId } ?: return
+            val videoId = extractYoutubeId(lesson.videoUrl)
+            if (videoId.isEmpty()) return
+            
+            val remoteCourseId = idMap.entries.find { it.value == lesson.courseId }?.key
+            
             connector.createReel.execute(
                 id = lessonId,
-                title = lesson?.title ?: "Video Lesson",
-                description = lesson?.description ?: "",
-                videoUrl = lesson?.videoUrl ?: ""
+                title = lesson.title,
+                description = lesson.description,
+                videoUrl = videoId
             ) {
-                courseId = lesson?.courseId?.toUUID()
+                courseId = remoteCourseId?.toUUID()
             }
         } catch (e: Exception) {
-            // Ignore errors if reel already exists (Primary Key violation)
-            if (e.message?.contains("already exists") == false) {
-                Log.d("FirebaseRepository", "Reel check/create: ${e.message}")
+            if (e.message?.contains("already exists", ignoreCase = true) == false) {
+                Log.e("FirebaseRepository", "Reel registration failed: ${e.message}")
             }
         }
     }
 
-    suspend fun toggleLike(userId: String, lessonId: String, isLiked: Boolean) {
+    suspend fun toggleLike(lessonId: String, isLiked: Boolean) {
         try {
             val remoteId = idMap.entries.find { it.value == lessonId }?.key ?: lessonId
             val uuid = remoteId.toUUID() ?: return
             ensureReelExists(uuid)
             if (isLiked) connector.toggleLike.execute(reelId = uuid)
             else connector.deleteLike.execute(reelId = uuid)
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Like failed: ${e.message}") }
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Like failed", e) }
     }
 
-    suspend fun toggleSave(userId: String, lessonId: String, isSaved: Boolean) {
+    suspend fun toggleSave(lessonId: String, isSaved: Boolean) {
         try {
             val remoteId = idMap.entries.find { it.value == lessonId }?.key ?: lessonId
             val uuid = remoteId.toUUID() ?: return
             ensureReelExists(uuid)
             if (isSaved) connector.toggleSave.execute(reelId = uuid)
             else connector.deleteSave.execute(reelId = uuid)
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Save failed: ${e.message}") }
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Save failed", e) }
     }
 
     suspend fun addComment(comment: ReelComment) {
@@ -79,7 +99,7 @@ class FirebaseRepository {
                 reelId = uuid
                 courseId = null
             }
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Comment failed: ${e.message}") }
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Comment failed", e) }
     }
 
     // --- Data Fetching ---
@@ -100,39 +120,15 @@ class FirebaseRepository {
                 )
             }
             if (remote.isNotEmpty()) emit(remote)
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Cloud Fetch Failed") }
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Cloud Fetch Failed", e) }
     }
 
     fun getModules(courseId: String): Flow<List<Module>> = flow {
-        try {
-            val remoteCourseId = idMap.entries.find { it.value == courseId }?.key ?: courseId
-            val uuid = remoteCourseId.toUUID() ?: throw Exception("Invalid ID")
-            val result = connector.getModules.execute(courseId = uuid)
-            val remote = result.data.modules.map { rm ->
-                val mockMatch = MockData.modules.find { m -> m.title == rm.title && m.courseId == courseId }
-                if (mockMatch != null) registerMapping(rm.id.toString(), mockMatch.id)
-                Module(id = rm.id.toString(), courseId = courseId, title = rm.title, description = rm.description ?: "", orderIndex = rm.orderIndex)
-            }
-            if (remote.isNotEmpty()) emit(remote)
-        } catch (e: Exception) {
-            emit(MockData.modules.filter { it.courseId == getMockId(courseId) })
-        }
+        emit(MockData.modules.filter { it.courseId == getMockId(courseId) })
     }
 
     fun getLessons(moduleId: String): Flow<List<Lesson>> = flow {
-        try {
-            val remoteModuleId = idMap.entries.find { it.value == moduleId }?.key ?: moduleId
-            val uuid = remoteModuleId.toUUID() ?: throw Exception("Invalid ID")
-            val result = connector.getLessons.execute(moduleId = uuid)
-            val remote = result.data.lessons.map { rl ->
-                val mockMatch = MockData.lessons.find { l -> l.title == rl.title && l.moduleId == moduleId }
-                if (mockMatch != null) registerMapping(rl.id.toString(), mockMatch.id)
-                Lesson(id = rl.id.toString(), moduleId = moduleId, title = rl.title, description = rl.description, videoUrl = rl.contentUrl, lessonType = rl.lessonType, orderIndex = rl.orderIndex)
-            }
-            if (remote.isNotEmpty()) emit(remote)
-        } catch (e: Exception) {
-            emit(MockData.lessons.filter { it.moduleId == getMockId(moduleId) })
-        }
+        emit(MockData.lessons.filter { it.moduleId == getMockId(moduleId) })
     }
 
     fun getComments(lessonId: String): Flow<List<ReelComment>> = flow {
@@ -143,7 +139,10 @@ class FirebaseRepository {
             emit(result.data.comments.map {
                 ReelComment(it.id.toString(), lessonId, it.user.id, it.user.displayName, it.text, it.createdAt.seconds * 1000)
             })
-        } catch (e: Exception) { emit(emptyList()) }
+        } catch (e: Exception) { 
+            Log.w("FirebaseRepository", "Failed to get comments", e)
+            emit(emptyList()) 
+        }
     }
 
     // --- Content Seeding ---
@@ -159,7 +158,10 @@ class FirebaseRepository {
             val remoteId = result.data.course_insert.id.toString()
             registerMapping(remoteId, course.id)
             remoteId
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("FirebaseRepository", "Add course failed", e)
+            null 
+        }
     }
 
     suspend fun addModule(module: Module): String? {
@@ -173,32 +175,39 @@ class FirebaseRepository {
             val remoteId = result.data.module_insert.id.toString()
             registerMapping(remoteId, module.id)
             remoteId
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("FirebaseRepository", "Add module failed", e)
+            null 
+        }
     }
 
     suspend fun addLesson(lesson: Lesson): String? {
         return try {
             val moduleUuid = lesson.moduleId.toUUID() ?: return null
+            val videoId = extractYoutubeId(lesson.videoUrl)
             val result = connector.createLesson.execute(
                 moduleId = moduleUuid,
                 title = lesson.title,
                 description = lesson.description,
                 lessonType = lesson.lessonType,
                 orderIndex = lesson.orderIndex,
-                contentUrl = lesson.videoUrl
+                contentUrl = if (videoId.isNotEmpty()) videoId else lesson.videoUrl
             ) { id = null }
             val remoteId = result.data.lesson_insert.id.toString()
             registerMapping(remoteId, lesson.id)
             remoteId
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("FirebaseRepository", "Add lesson failed", e)
+            null 
+        }
     }
 
     suspend fun addReel(lesson: Lesson, remoteLessonId: String) {
         val uuid = remoteLessonId.toUUID() ?: return
-        ensureReelExists(uuid)
+        ensureReelExists(uuid, lesson)
     }
 
-    suspend fun completeLesson(userId: String, lessonId: String) {
+    suspend fun completeLesson(lessonId: String) {
         try {
             val remoteId = idMap.entries.find { it.value == lessonId }?.key ?: lessonId
             val uuid = remoteId.toUUID() ?: return
@@ -206,36 +215,45 @@ class FirebaseRepository {
             val remoteCourseId = idMap.entries.find { it.value == mockLesson?.courseId }?.key ?: return
             val courseUuid = remoteCourseId.toUUID() ?: return
             connector.updateProgress.execute(courseId = courseUuid, lessonId = uuid, isCompleted = true)
-        } catch (e: Exception) { }
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Complete lesson failed", e) }
     }
 
-    suspend fun enrollInCourse(userId: String, courseId: String) {
+    suspend fun enrollInCourse(courseId: String) {
         try {
             val remoteId = idMap.entries.find { it.value == courseId }?.key ?: courseId
             val courseUuid = remoteId.toUUID() ?: return
             connector.enrollInCourse.execute(courseId = courseUuid)
-        } catch (e: Exception) { }
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Enroll failed", e) }
     }
 
-    fun getEnrollments(userId: String): Flow<List<Enrollment>> = flow {
+    fun getEnrollments(): Flow<List<Enrollment>> = flow {
         try {
             val result = connector.getEnrollments.execute()
             emit(result.data.enrollments.map { Enrollment(courseId = getMockId(it.courseId.toString())) })
-        } catch (e: Exception) { emit(emptyList()) }
+        } catch (e: Exception) { 
+            Log.w("FirebaseRepository", "Get enrollments failed", e)
+            emit(emptyList()) 
+        }
     }
 
-    fun getUserLikes(userId: String): Flow<List<String>> = flow {
+    fun getUserLikes(): Flow<List<String>> = flow {
         try {
             val result = connector.getUserLikes.execute()
             emit(result.data.likes.map { getMockId(it.reelId.toString()) })
-        } catch (e: Exception) { emit(emptyList()) }
+        } catch (e: Exception) { 
+            Log.w("FirebaseRepository", "Get likes failed", e)
+            emit(emptyList()) 
+        }
     }
 
-    fun getUserSaved(userId: String): Flow<List<String>> = flow {
+    fun getUserSaved(): Flow<List<String>> = flow {
         try {
             val result = connector.getUserSaved.execute()
             emit(result.data.savedContents.map { getMockId(it.reelId.toString()) })
-        } catch (e: Exception) { emit(emptyList()) }
+        } catch (e: Exception) { 
+            Log.w("FirebaseRepository", "Get saved failed", e)
+            emit(emptyList()) 
+        }
     }
 
     fun getUserProfile(uid: String): Flow<User?> = flow {
@@ -243,12 +261,15 @@ class FirebaseRepository {
             val result = connector.getUserProfile.execute(id = uid)
             val data = result.data.user
             if (data != null) emit(User(id = data.id, name = data.displayName, email = data.email, photoUrl = data.photoUrl, bio = data.bio, role = data.role))
-        } catch (e: Exception) { emit(null) }
+        } catch (e: Exception) { 
+            Log.e("FirebaseRepository", "Get profile failed", e)
+            emit(null) 
+        }
     }
 
     suspend fun updateUserProfile(user: User) {
         try {
             connector.upsertUser.execute(displayName = user.name, email = user.email, photoUrl = user.photoUrl ?: "")
-        } catch (e: Exception) { }
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Update profile failed", e) }
     }
 }
