@@ -65,7 +65,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    LaunchedEffect(auth.currentUser, auth.currentUser?.isEmailVerified, currentUser) {
+    LaunchedEffect(auth.currentUser, auth.currentUser?.isEmailVerified, currentUser, currentRoute) {
         val user = auth.currentUser
         val profile = currentUser
         if (user == null || !user.isEmailVerified) {
@@ -74,13 +74,13 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     popUpTo(0) { inclusive = true }
                 }
             }
-        } else if (currentRoute == "auth") {
-            // ONLY NAVIGATE IF THE PROFILE MATCHES THE LOGGED IN USER
+        } else if (currentRoute == "launch" || currentRoute == "auth") {
             if (profile != null && profile.id == user.uid) {
-                if (profile.onboardingCompleted == false) {
-                    navController.navigate("onboarding") { popUpTo(0) }
-                } else {
-                    navController.navigate("home") { popUpTo(0) }
+                val destination = if (profile.onboardingCompleted) "home" else "onboarding"
+                if (currentRoute != destination) {
+                    navController.navigate(destination) {
+                        popUpTo(0)
+                    }
                 }
             }
         }
@@ -90,6 +90,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
         bottomBar = {
             val showBottomBar = auth.currentUser != null && 
                                auth.currentUser?.isEmailVerified == true &&
+                               currentRoute != "launch" &&
                                currentRoute != "onboarding" &&
                                currentRoute != "auth" &&
                                currentRoute != "create_course" &&
@@ -123,20 +124,34 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = if (auth.currentUser?.isEmailVerified == true) "home" else "auth",
+            startDestination = "launch",
             modifier = Modifier.padding(padding)
         ) {
+            composable("launch") {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
             composable("auth") { 
                 AuthScreen(viewModel = viewModel, onLoginSuccess = {
-                    auth.currentUser?.let { user ->
-                        if (user.isEmailVerified) {
-                            if (currentUser?.onboardingCompleted == false) navController.navigate("onboarding")
-                            else navController.navigate("home")
-                        }
+                    navController.navigate("launch") {
+                        popUpTo(0)
                     }
                 }) 
             }
-            composable("onboarding") { OnboardingScreen(navController, viewModel) }
+            composable("onboarding") {
+                if (currentUser?.onboardingCompleted == true) {
+                    LaunchedEffect(currentUser?.id) {
+                        navController.navigate("home") {
+                            popUpTo("onboarding") { inclusive = true }
+                        }
+                    }
+                }
+                OnboardingScreen(navController, viewModel)
+            }
             composable("home") { HomeFeedScreen(navController, viewModel) }
             composable("courses") { CoursesListScreen(navController, viewModel) }
             composable("profile") { 

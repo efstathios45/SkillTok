@@ -1,14 +1,19 @@
 package com.skilltok.app
 
 import android.util.Log
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.skilltok.app.dataconnect.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.tasks.await
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 class FirebaseRepository {
     private val connector = SkilltokConnectorConnector.instance
+    private val firestore = FirebaseFirestore.getInstance()
+    private val usersCollection = firestore.collection("users")
 
     companion object {
         val idMap = ConcurrentHashMap<String, String>()
@@ -17,6 +22,15 @@ class FirebaseRepository {
             idMap[remoteId.lowercase()] = mockId 
         }
     }
+
+    private data class UserPreferencesSnapshot(
+        val name: String? = null,
+        val email: String? = null,
+        val photoUrl: String? = null,
+        val interests: List<String> = emptyList(),
+        val goals: List<String> = emptyList(),
+        val onboardingCompleted: Boolean = false
+    )
 
     private fun String.toUUID(): UUID? {
         return try {
@@ -43,6 +57,27 @@ class FirebaseRepository {
             if (id != null && id.length == 11) return id
         }
         return ""
+    }
+
+    private suspend fun getUserPreferences(uid: String): UserPreferencesSnapshot {
+        return try {
+            val snapshot = usersCollection.document(uid).get().await()
+            if (!snapshot.exists()) {
+                UserPreferencesSnapshot()
+            } else {
+                UserPreferencesSnapshot(
+                    name = snapshot.getString("displayName"),
+                    email = snapshot.getString("email"),
+                    photoUrl = snapshot.getString("photoUrl"),
+                    interests = (snapshot.get("interests") as? List<*>)?.filterIsInstance<String>().orEmpty(),
+                    goals = (snapshot.get("goals") as? List<*>)?.filterIsInstance<String>().orEmpty(),
+                    onboardingCompleted = snapshot.getBoolean("onboardingCompleted") ?: false
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("FirebaseRepository", "Get user preferences failed", e)
+            UserPreferencesSnapshot()
+        }
     }
 
     // --- Social Interactions with Foreign Key Safety ---
@@ -256,11 +291,55 @@ class FirebaseRepository {
         }
     }
 
+    suspend fun fetchUserProfile(uid: String): User? {
+        val preferences = getUserPreferences(uid)
+        val baseProfile = try {
+            val result = connector.getUserProfile.execute(id = uid)
+            result.data.user?.let { data ->
+                User(
+                    id = data.id,
+                    name = data.displayName,
+                    email = data.email,
+                    photoUrl = data.photoUrl,
+                    bio = data.bio,
+                    role = data.role
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("FirebaseRepository", "Get profile failed", e)
+            null
+        }
+
+        return when {
+            baseProfile != null -> {
+                baseProfile.copy(
+                    name = preferences.name ?: baseProfile.name,
+                    email = preferences.email?.takeIf { it.isNotBlank() } ?: baseProfile.email,
+                    photoUrl = preferences.photoUrl ?: baseProfile.photoUrl,
+                    interests = preferences.interests,
+                    goals = preferences.goals,
+                    onboardingCompleted = preferences.onboardingCompleted
+                )
+            }
+            preferences.name != null || preferences.email != null || preferences.photoUrl != null ||
+                preferences.interests.isNotEmpty() || preferences.goals.isNotEmpty() || preferences.onboardingCompleted -> {
+                User(
+                    id = uid,
+                    name = preferences.name ?: "Learner",
+                    email = preferences.email.orEmpty(),
+                    photoUrl = preferences.photoUrl,
+                    interests = preferences.interests,
+                    goals = preferences.goals,
+                    onboardingCompleted = preferences.onboardingCompleted
+                )
+            }
+            else -> null
+        }
+    }
+
     fun getUserProfile(uid: String): Flow<User?> = flow {
         try {
-            val result = connector.getUserProfile.execute(id = uid)
-            val data = result.data.user
-            if (data != null) emit(User(id = data.id, name = data.displayName, email = data.email, photoUrl = data.photoUrl, bio = data.bio, role = data.role))
+            emit(fetchUserProfile(uid))
         } catch (e: Exception) { 
             Log.e("FirebaseRepository", "Get profile failed", e)
             emit(null) 
@@ -271,5 +350,18 @@ class FirebaseRepository {
         try {
             connector.upsertUser.execute(displayName = user.name, email = user.email, photoUrl = user.photoUrl ?: "")
         } catch (e: Exception) { Log.e("FirebaseRepository", "Update profile failed", e) }
+        try {
+            val payload = mutableMapOf<String, Any?>(
+                "displayName" to user.name,
+                "email" to user.email,
+                "photoUrl" to user.photoUrl,
+                "interests" to user.interests,
+                "goals" to user.goals,
+                "onboardingCompleted" to user.onboardingCompleted
+            )
+            usersCollection.document(user.id).set(payload, SetOptions.merge()).await()
+        } catch (e: Exception) {
+            Log.e("FirebaseRepository", "Update user preferences failed", e)
+        }
     }
 }

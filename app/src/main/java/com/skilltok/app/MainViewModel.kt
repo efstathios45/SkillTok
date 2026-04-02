@@ -10,6 +10,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import java.util.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
@@ -24,6 +27,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FirebaseRepository()
     private val auth = FirebaseAuth.getInstance()
     private val db = SkillTokDatabase.getDatabase(application).dao()
+    private val json = Json { ignoreUnknownKeys = true }
 
     private val _courses = MutableStateFlow<List<Course>>(MockData.courses)
     val courses: StateFlow<List<Course>> = _courses.asStateFlow()
@@ -165,8 +169,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         userDataJob = viewModelScope.launch {
             launch {
                 db.getUserProfile(uid).collect { local ->
-                    if (local != null && _userProfile.value == null) {
-                        _userProfile.value = User(id = local.id, name = local.name, email = local.email, xp = local.xp, streak = local.streak, level = local.level)
+                    if (local != null && (_userProfile.value == null || _userProfile.value?.id == uid)) {
+                        _userProfile.value = local.toUser()
                     }
                 }
             }
@@ -174,7 +178,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repository.getUserProfile(uid).collect { remoteUser ->
                     if (remoteUser != null) {
                         _userProfile.value = remoteUser
-                        db.insertUserProfile(LocalUserEntity(id = remoteUser.id, name = remoteUser.name, email = remoteUser.email, xp = remoteUser.xp, streak = remoteUser.streak, level = remoteUser.level))
+                        cacheUserProfile(remoteUser)
+                    }
+                }
+            }
+            launch {
+                db.getEnrollments(uid).collect { locals ->
+                    if (locals.isNotEmpty()) {
+                        _enrollments.value = locals.map {
+                            Enrollment(
+                                id = it.id,
+                                userId = it.userId,
+                                courseId = it.courseId,
+                                status = it.status,
+                                progressPercent = it.progressPercent,
+                                currentLessonId = it.currentLessonId
+                            )
+                        }
                     }
                 }
             }
@@ -185,10 +205,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null) {
-        val newUser = User(id = firebaseUser.uid, name = customName ?: firebaseUser.displayName ?: "Learner", email = firebaseUser.email ?: "", photoUrl = firebaseUser.photoUrl?.toString())
+        val cachedUser = db.getUserProfile(firebaseUser.uid).firstOrNull()?.toUser()
+        val inMemoryUser = _userProfile.value?.takeIf { it.id == firebaseUser.uid }
+        val existingUser = repository.fetchUserProfile(firebaseUser.uid) ?: cachedUser ?: inMemoryUser
+        val newUser = (existingUser ?: User(id = firebaseUser.uid)).copy(
+            id = firebaseUser.uid,
+            name = customName ?: firebaseUser.displayName ?: existingUser?.name ?: "Learner",
+            email = firebaseUser.email ?: existingUser?.email ?: "",
+            photoUrl = firebaseUser.photoUrl?.toString() ?: existingUser?.photoUrl,
+            interests = existingUser?.interests ?: emptyList(),
+            goals = existingUser?.goals ?: emptyList(),
+            onboardingCompleted = existingUser?.onboardingCompleted ?: false
+        )
         repository.updateUserProfile(newUser)
         _userProfile.value = newUser
-        db.insertUserProfile(LocalUserEntity(id = newUser.id, name = newUser.name, email = newUser.email, xp = 0, streak = 0, level = 1))
+        cacheUserProfile(newUser)
     }
 
     fun toggleLike(lessonId: String) {
@@ -198,6 +229,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (currentlyLiked) _likes.value -= lessonId else _likes.value += lessonId
             repository.toggleLike(lessonId, !currentlyLiked)
             db.insertInteraction(LocalInteractionEntity("${uid}_$lessonId", uid, lessonId, !currentlyLiked))
+            if (!currentlyLiked) {
+                SkillTokSoundPlayer.play(SkillTokSoundEffect.Like)
+            }
         }
     }
 
@@ -226,6 +260,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             db.insertComment(LocalCommentEntity(commentId, lessonId, user.id, user.name, text, timestamp))
             repository.addComment(comment)
             loadComments(lessonId)
+            SkillTokSoundPlayer.play(SkillTokSoundEffect.Comment)
         }
     }
 
@@ -249,7 +284,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _userProfile.value = updated
         viewModelScope.launch {
             repository.updateUserProfile(updated)
-            db.insertUserProfile(LocalUserEntity(id = updated.id, name = updated.name, email = updated.email, xp = updated.xp, streak = updated.streak, level = updated.level))
+            cacheUserProfile(updated)
         }
     }
 
@@ -281,13 +316,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enrollInCourse(courseId: String, startLessonId: String? = null) {
         val uid = auth.currentUser?.uid ?: return
+        if (_enrollments.value.any { it.courseId == courseId } || _enrollmentState.value is EnrollmentState.Loading) {
+            return
+        }
         viewModelScope.launch {
             _enrollmentState.value = EnrollmentState.Loading
             try {
                 repository.enrollInCourse(courseId)
                 db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
-                _enrollments.value += Enrollment(courseId = courseId)
+                _enrollments.value = (_enrollments.value + Enrollment(courseId = courseId)).distinctBy { it.courseId }
                 _enrollmentState.value = EnrollmentState.Success(courseId)
+                SkillTokSoundPlayer.play(SkillTokSoundEffect.Enroll)
             } catch (e: Exception) {
                 _enrollmentState.value = EnrollmentState.Error(e.message ?: "Enrollment failed")
             }
@@ -331,6 +370,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         auth.signOut()
+    }
+
+    private suspend fun cacheUserProfile(user: User) {
+        db.insertUserProfile(
+            LocalUserEntity(
+                id = user.id,
+                name = user.name,
+                email = user.email,
+                photoUrl = user.photoUrl,
+                xp = user.xp,
+                streak = user.streak,
+                level = user.level,
+                interestsJson = json.encodeToString(user.interests),
+                goalsJson = json.encodeToString(user.goals),
+                onboardingCompleted = user.onboardingCompleted
+            )
+        )
+    }
+
+    private fun LocalUserEntity.toUser(): User {
+        fun decodeList(raw: String): List<String> =
+            runCatching { json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())
+
+        return User(
+            id = id,
+            name = name,
+            email = email,
+            xp = xp,
+            streak = streak,
+            level = level,
+            photoUrl = photoUrl,
+            interests = decodeList(interestsJson),
+            goals = decodeList(goalsJson),
+            onboardingCompleted = onboardingCompleted
+        )
     }
 }
 

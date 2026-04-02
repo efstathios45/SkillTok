@@ -31,7 +31,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -41,10 +40,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +54,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private data class ReelSeekRequest(
+    val directionSeconds: Int,
+    val token: Long = System.nanoTime()
+)
 
 @Composable
 fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewModel: MainViewModel) {
@@ -248,6 +253,7 @@ fun ReelItem(
     onMuteToggle: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     
@@ -259,6 +265,7 @@ fun ReelItem(
     
     var showHeartAnim by remember { mutableStateOf(false) }
     var isManuallyPaused by remember { mutableStateOf(false) }
+    var seekRequest by remember { mutableStateOf<ReelSeekRequest?>(null) }
     
     val enrollments by viewModel.enrollments.collectAsState()
     val isEnrolled = enrollments.any { it.courseId == course.id }
@@ -266,6 +273,13 @@ fun ReelItem(
     val comments by viewModel.comments.collectAsState()
     val lessonComments = comments[lesson.id] ?: emptyList()
     var showComments by remember { mutableStateOf(false) }
+
+    LaunchedEffect(lesson.id) {
+        isManuallyPaused = false
+        showComments = false
+        showHeartAnim = false
+        seekRequest = null
+    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "disc")
     val discRotation by infiniteTransition.animateFloat(
@@ -276,29 +290,69 @@ fun ReelItem(
     Box(modifier = Modifier.fillMaxSize()) {
         YouTubePlayer(
             videoId = lesson.videoUrl, 
-            modifier = Modifier.pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = {
-                        isManuallyPaused = !isManuallyPaused
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    onDoubleTap = {
-                        if (!isLiked) viewModel.toggleLike(lesson.id)
-                        showHeartAnim = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        scope.launch { delay(800); showHeartAnim = false }
-                    },
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        isManuallyPaused = true
-                    }
-                )
-            },
             isReel = true, 
             isPlaying = isPlaying && !isManuallyPaused && !showComments, 
             isMutedGlobal = isMutedGlobal, 
-            onMuteToggle = onMuteToggle
+            onMuteToggle = onMuteToggle,
+            seekSignal = seekRequest
         )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = configuration.screenHeightDp.dp * 0.16f, bottom = 180.dp)
+        ) {
+            ReelTapZone(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Replay10,
+                label = "Back 10s",
+                indicator = seekRequest?.directionSeconds == -10,
+                onTap = {
+                    val request = ReelSeekRequest(directionSeconds = -10)
+                    seekRequest = request
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    scope.launch {
+                        delay(650)
+                        if (seekRequest == request) seekRequest = null
+                    }
+                }
+            )
+            ReelTapZone(
+                modifier = Modifier.weight(1f),
+                icon = if (isManuallyPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                label = if (isManuallyPaused) "Play" else "Pause",
+                indicator = isManuallyPaused,
+                onDoubleTap = {
+                    if (!isLiked) viewModel.toggleLike(lesson.id)
+                    showHeartAnim = true
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    scope.launch { delay(800); showHeartAnim = false }
+                },
+                onLongPress = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    isManuallyPaused = true
+                },
+                onTap = {
+                    isManuallyPaused = !isManuallyPaused
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            )
+            ReelTapZone(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Default.Forward10,
+                label = "Forward 10s",
+                indicator = seekRequest?.directionSeconds == 10,
+                onTap = {
+                    val request = ReelSeekRequest(directionSeconds = 10)
+                    seekRequest = request
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    scope.launch {
+                        delay(650)
+                        if (seekRequest == request) seekRequest = null
+                    }
+                }
+            )
+        }
 
         // Center Heart Popup Animation
         AnimatedVisibility(
@@ -312,7 +366,7 @@ fun ReelItem(
 
         // Visible Pause Indicator
         AnimatedVisibility(
-            visible = isManuallyPaused,
+            visible = isManuallyPaused || seekRequest != null,
             enter = fadeIn() + scaleIn(),
             exit = fadeOut() + scaleOut(),
             modifier = Modifier.align(Alignment.Center)
@@ -323,7 +377,11 @@ fun ReelItem(
                     .background(Color.Black.copy(alpha = 0.4f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(50.dp))
+                when (seekRequest?.directionSeconds) {
+                    -10 -> Icon(Icons.Default.Replay10, null, tint = Color.White, modifier = Modifier.size(50.dp))
+                    10 -> Icon(Icons.Default.Forward10, null, tint = Color.White, modifier = Modifier.size(50.dp))
+                    else -> Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(50.dp))
+                }
             }
         }
 
@@ -574,13 +632,58 @@ fun InteractionItem(
 }
 
 @Composable
+private fun ReelTapZone(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    label: String,
+    indicator: Boolean = false,
+    onTap: () -> Unit,
+    onDoubleTap: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .pointerInput(onTap, onDoubleTap, onLongPress) {
+                detectTapGestures(
+                    onTap = { onTap() },
+                    onDoubleTap = { onDoubleTap?.invoke() },
+                    onLongPress = { onLongPress?.invoke() }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedVisibility(
+            visible = indicator,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.32f),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(label, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun YouTubePlayer(
     videoId: String, 
     modifier: Modifier = Modifier,
     isReel: Boolean = false, 
     isPlaying: Boolean = true,
     isMutedGlobal: Boolean = false,
-    onMuteToggle: (Boolean) -> Unit = {}
+    onMuteToggle: (Boolean) -> Unit = {},
+    seekSignal: ReelSeekRequest? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -694,6 +797,13 @@ fun YouTubePlayer(
     LaunchedEffect(isReady, isMutedGlobal) {
         if (isReady) {
             webView.evaluateJavascript("setMute($isMutedGlobal)", null)
+        }
+    }
+
+    LaunchedEffect(isReady, seekSignal) {
+        val seekSeconds = seekSignal?.directionSeconds
+        if (isReady && seekSeconds != null && seekSeconds != 0) {
+            webView.evaluateJavascript("seek($seekSeconds)", null)
         }
     }
 

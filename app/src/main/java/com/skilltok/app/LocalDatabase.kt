@@ -13,9 +13,13 @@ data class LocalUserEntity(
     val firebaseId: String? = null, // Sync link
     val name: String,
     val email: String,
+    val photoUrl: String? = null,
     val xp: Int,
     val streak: Int,
-    val level: Int
+    val level: Int,
+    val interestsJson: String = "[]",
+    val goalsJson: String = "[]",
+    val onboardingCompleted: Boolean = false
 )
 
 @Entity(tableName = "local_courses")
@@ -130,7 +134,7 @@ interface SkillTokDao {
 
 @Database(
     entities = [LocalUserEntity::class, LocalCourseEntity::class, LocalEnrollmentEntity::class, LocalCompletionEntity::class, LocalInteractionEntity::class, LocalCommentEntity::class, LocalSavedEntity::class], 
-    version = 5, // Upgraded version for schema change
+    version = 6, // Upgraded version for profile preference caching
     exportSchema = false
 )
 abstract class SkillTokDatabase : RoomDatabase() {
