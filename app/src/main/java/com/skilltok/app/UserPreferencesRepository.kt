@@ -24,11 +24,9 @@ class UserPreferencesRepository {
         val registration = docRef(uid).addSnapshotListener { snap, e ->
             if (e != null) {
                 Log.w("UserPrefs", "listen failed", e)
-                trySend(UserLearningPreferences())
                 return@addSnapshotListener
             }
             if (snap == null || !snap.exists()) {
-                trySend(UserLearningPreferences())
                 return@addSnapshotListener
             }
             val interests = (snap.get("interests") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
