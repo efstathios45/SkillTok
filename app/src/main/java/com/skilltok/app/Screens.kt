@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -401,7 +402,8 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
     val isEnrolled = viewModel.isEnrolled(courseId)
     val enrollmentState by viewModel.enrollmentState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    
+    val scrollState = rememberScrollState()
+
     LaunchedEffect(enrollmentState) {
         when (enrollmentState) {
             is EnrollmentState.Success -> {
@@ -416,78 +418,190 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Course Details", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { scaffoldPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(scaffoldPadding)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .verticalScroll(scrollState)
+            ) {
+                // Immersive hero — full-bleed image with gradient overlay + back button + badges
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(320.dp)
+                ) {
+                    AsyncImage(
+                        model = course.thumbnailUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+
+                    // Gradient overlay (darker at top for nav, darker at bottom for text)
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.55f),
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.75f)
+                                )
+                            )
+                        )
+                    )
+
+                    // Back button (top-start, above status bar)
+                    Box(
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .padding(12.dp)
+                            .align(Alignment.TopStart)
+                    ) {
+                        IconButton(
+                            onClick = { navController.popBackStack() },
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())) {
-            AsyncImage(
-                model = course.thumbnailUrl,
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth().height(240.dp),
-                contentScale = ContentScale.Crop
-            )
-            
-            Column(modifier = Modifier.padding(24.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CourseBadge(course.subject)
-                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Title & metadata at bottom of hero
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(20.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CourseBadge(course.subject)
+                            CourseBadge(course.level)
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            course.title,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            lineHeight = 32.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(14.dp))
+                            Text(
+                                " ${course.rating}  •  ${course.learnersCount} learners",
+                                fontSize = 13.sp,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+
+                    // REELVIEW / Enroll button floating at top-end when enrolled
                     if (isEnrolled) {
+                        Box(
+                            modifier = Modifier
+                                .statusBarsPadding()
+                                .padding(12.dp)
+                                .align(Alignment.TopEnd)
+                        ) {
+                            Button(
+                                onClick = { navController.navigate("reels/${course.id}/resume") },
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Watch", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Course body
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text(
+                        course.description,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 24.sp,
+                        fontSize = 15.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    // Stats row
+                    val lessonCount = MockData.lessons.count { it.courseId == courseId }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CourseStatChip(Icons.Default.School, "${modules.size} modules", Modifier.weight(1f))
+                        CourseStatChip(Icons.Default.AccessTime, "$lessonCount lessons", Modifier.weight(1f))
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    Text("Curriculum", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    modules.forEach { module ->
+                        ModuleListItem(module, viewModel, navController)
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    if (!isEnrolled) {
+                        Button(
+                            onClick = { viewModel.enrollInCourse(course.id) },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            enabled = enrollmentState !is EnrollmentState.Loading,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            if (enrollmentState is EnrollmentState.Loading) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.School, null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("Enroll Now", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                        }
+                    } else {
                         Button(
                             onClick = { navController.navigate("reels/${course.id}/resume") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(12.dp)
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary)
                         ) {
-                            Icon(Icons.Default.PlayArrow, null)
-                            Text("REELVIEW")
+                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Continue Learning", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                     }
-                }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(course.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(course.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp)
-                
-                Spacer(modifier = Modifier.height(32.dp))
-                
-                Text("Curriculum", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                modules.forEach { module ->
-                    ModuleListItem(module, viewModel, navController)
-                }
-                
-                Spacer(modifier = Modifier.height(32.dp))
-                
-                if (!isEnrolled) {
-                    Button(
-                        onClick = { 
-                            viewModel.enrollInCourse(course.id)
-                        },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        enabled = enrollmentState !is EnrollmentState.Loading,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        if (enrollmentState is EnrollmentState.Loading) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("Enroll Now", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CourseStatChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }
