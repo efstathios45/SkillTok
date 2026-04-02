@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
 package com.skilltok.app
 
 import android.view.View
@@ -54,7 +55,6 @@ import androidx.navigation.NavHostController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewModel: MainViewModel) {
     val context = LocalContext.current
@@ -144,7 +144,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                 
                 if (lesson.hasQuiz) {
                     OutlinedButton(
-                        onClick = { navController.navigate("quiz/$lessonId") },
+                        onClick = { navController.navigate("quiz/${lesson.id}") },
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(56.dp),
                         shape = RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
@@ -163,7 +163,6 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
     val courses by viewModel.courses.collectAsState()
     val course = courses.find { it.id == courseId } ?: return
     
-    // FETCH LESSONS FROM VIEWMODEL (which handles cloud/mock fallback)
     val lessonsFlow = remember(courseId) { viewModel.getModuleLessonsForReels(courseId) }
     val lessons by lessonsFlow.collectAsState(initial = emptyList())
     
@@ -200,22 +199,40 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
             )
         }
 
-        // Top Header
-        Row(
+        // Professional Top Header - Improved to use "wasted screen"
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp)
-                .statusBarsPadding(),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(top = 16.dp)
+                .statusBarsPadding()
         ) {
-            IconButton(
-                onClick = { navController.popBackStack() },
-                modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                IconButton(
+                    onClick = { navController.popBackStack() },
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(course.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                    Text("${pagerState.currentPage + 1} of ${lessons.size} lessons", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
             }
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(course.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            LinearProgressIndicator(
+                progress = { (pagerState.currentPage + 1).toFloat() / lessons.size },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = AppColors.Primary,
+                trackColor = Color.White.copy(alpha = 0.1f)
+            )
         }
     }
 }
@@ -261,6 +278,10 @@ fun ReelItem(
             videoId = lesson.videoUrl, 
             modifier = Modifier.pointerInput(Unit) {
                 detectTapGestures(
+                    onTap = {
+                        isManuallyPaused = !isManuallyPaused
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
                     onDoubleTap = {
                         if (!isLiked) viewModel.toggleLike(lesson.id)
                         showHeartAnim = true
@@ -270,15 +291,11 @@ fun ReelItem(
                     onLongPress = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         isManuallyPaused = true
-                    },
-                    onPress = {
-                        tryAwaitRelease()
-                        isManuallyPaused = false
                     }
                 )
             },
             isReel = true, 
-            isPlaying = isPlaying && !isManuallyPaused, 
+            isPlaying = isPlaying && !isManuallyPaused && !showComments, 
             isMutedGlobal = isMutedGlobal, 
             onMuteToggle = onMuteToggle
         )
@@ -291,6 +308,23 @@ fun ReelItem(
             modifier = Modifier.align(Alignment.Center)
         ) {
             Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(110.dp))
+        }
+
+        // Visible Pause Indicator
+        AnimatedVisibility(
+            visible = isManuallyPaused,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(50.dp))
+            }
         }
 
         // Professional UI Overlay Gradients
@@ -314,7 +348,6 @@ fun ReelItem(
                     Box(modifier = Modifier.size(40.dp).background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
                         Text(course.subject.take(1), color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                     }
-                    // Plus Follow/Enroll Button
                     if (!isEnrolled) {
                         Box(
                             modifier = Modifier
@@ -402,6 +435,13 @@ fun ReelItem(
                 }
             )
             InteractionItem(
+                icon = if (isMutedGlobal) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                label = if (isMutedGlobal) "Muted" else "Mute",
+                isActive = isMutedGlobal,
+                activeColor = AppColors.Primary,
+                onClick = { onMuteToggle(!isMutedGlobal) }
+            )
+            InteractionItem(
                 icon = Icons.Default.Bookmark, 
                 label = if (isSaved) "Saved" else "Save", 
                 isActive = isSaved, 
@@ -447,7 +487,6 @@ fun ReelItem(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommentsBottomSheet(
     lessonId: String,
@@ -564,7 +603,7 @@ fun YouTubePlayer(
         <body>
             <div class="container">
                 <iframe id="player"
-                    src="https://www.youtube-nocookie.com/embed/$videoId?autoplay=1&mute=0&controls=0&modestbranding=1&rel=0&showinfo=0&loop=1&playlist=$videoId&playsinline=1&enablejsapi=1&origin=https://www.youtube-nocookie.com&iv_load_policy=3" 
+                    src="https://www.youtube-nocookie.com/embed/$videoId?autoplay=0&mute=0&controls=0&modestbranding=1&rel=0&showinfo=0&loop=1&playlist=$videoId&playsinline=1&enablejsapi=1&origin=https://www.youtube-nocookie.com&iv_load_policy=3" 
                     allow="autoplay; encrypted-media" 
                     allowfullscreen>
                 </iframe>
@@ -578,7 +617,6 @@ fun YouTubePlayer(
                             'onReady': function(event) {
                                 ready = true;
                                 window.Android.onReady();
-                                event.target.playVideo();
                                 if ($isMutedGlobal) event.target.mute();
                                 setInterval(updateProgress, 1000);
                             },
@@ -618,7 +656,6 @@ fun YouTubePlayer(
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.databaseEnabled = true
             settings.mediaPlaybackRequiresUserGesture = false
             settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -648,8 +685,17 @@ fun YouTubePlayer(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(isPlaying) { webView.evaluateJavascript("setPlayback($isPlaying)", null) }
-    LaunchedEffect(isMutedGlobal) { webView.evaluateJavascript("setMute($isMutedGlobal)", null) }
+    LaunchedEffect(isReady, isPlaying) {
+        if (isReady) {
+            webView.evaluateJavascript("setPlayback($isPlaying)", null)
+        }
+    }
+    
+    LaunchedEffect(isReady, isMutedGlobal) {
+        if (isReady) {
+            webView.evaluateJavascript("setMute($isMutedGlobal)", null)
+        }
+    }
 
     Box(modifier = modifier.then(if (isReel) Modifier.fillMaxSize() else Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)))) {
         AndroidView(
@@ -663,22 +709,30 @@ fun YouTubePlayer(
 
         if (isPlaying) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    IconButton(
-                        onClick = { onMuteToggle(!isMutedGlobal) },
-                        modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                    ) {
-                        Icon(if (isMutedGlobal) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White)
+                // Mute button only for deep dives (reels have it in sidebar)
+                if (!isReel) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        IconButton(
+                            onClick = { onMuteToggle(!isMutedGlobal) },
+                            modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(if (isMutedGlobal) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White)
+                        }
                     }
+                } else {
+                    Spacer(modifier = Modifier.height(1.dp))
                 }
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { webView.evaluateJavascript("seek(-10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
-                        Icon(Icons.Default.Replay10, null, tint = Color.White, modifier = Modifier.size(32.dp))
-                    }
-                    Spacer(modifier = Modifier.width(48.dp))
-                    IconButton(onClick = { webView.evaluateJavascript("seek(10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
-                        Icon(Icons.Default.Forward10, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                // Skip buttons only for deep dives
+                if (!isReel) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { webView.evaluateJavascript("seek(-10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
+                            Icon(Icons.Default.Replay10, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                        }
+                        Spacer(modifier = Modifier.width(48.dp))
+                        IconButton(onClick = { webView.evaluateJavascript("seek(10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
+                            Icon(Icons.Default.Forward10, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                        }
                     }
                 }
 
@@ -696,11 +750,10 @@ fun YouTubePlayer(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: MainViewModel) {
     var currentQuestionIndex by remember { mutableIntStateOf(0) }
-    var selectedOptionIndexes = remember { mutableStateListOf<Int>() }
+    val selectedOptionIndexes = remember { mutableStateListOf<Int>() }
     var isSubmitted by remember { mutableStateOf(false) }
     var score by remember { mutableIntStateOf(0) }
     var isFinished by remember { mutableStateOf(false) }
@@ -830,5 +883,21 @@ fun QuizResultScreen(score: Int, total: Int, onBack: () -> Unit) {
         Button(onClick = onBack, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) {
             Text("Back to Lesson", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
+    }
+}
+
+@Composable
+fun CourseBadge(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSecondaryContainer
+        )
     }
 }
