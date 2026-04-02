@@ -10,6 +10,14 @@ mutation UpsertUser($displayName: String!, $email: String!, $photoUrl: String!) 
   })
 }
 
+mutation CompleteOnboarding($interests: String!, $goals: String!) @auth(level: USER) {
+  user_update(id_expr: "auth.uid", data: {
+    onboardingCompleted: true,
+    interests: $interests,
+    goals: $goals
+  })
+}
+
 query GetUserProfile($id: String!) @auth(level: USER) {
   user(id: $id) {
     id
@@ -18,6 +26,9 @@ query GetUserProfile($id: String!) @auth(level: USER) {
     photoUrl
     bio
     role
+    onboardingCompleted
+    interests
+    goals
   }
 }
 

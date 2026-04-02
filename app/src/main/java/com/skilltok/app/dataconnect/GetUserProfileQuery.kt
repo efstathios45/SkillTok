@@ -52,7 +52,10 @@ public interface GetUserProfileQuery :
     val email: String,
     val photoUrl: String?,
     val bio: String?,
-    val role: String
+    val role: String,
+    val onboardingCompleted: Boolean = false,
+    val interests: String? = null,
+    val goals: String? = null
   ) {
     
     

@@ -22,6 +22,8 @@ public interface SkilltokConnectorConnector : com.google.firebase.dataconnect.ge
   
     public val addComment: AddCommentMutation
   
+    public val completeOnboarding: CompleteOnboardingMutation
+  
     public val createCourse: CreateCourseMutation
   
     public val createLesson: CreateLessonMutation
@@ -107,6 +109,10 @@ private class SkilltokConnectorConnectorImpl(
   
     override val addComment by lazy(LazyThreadSafetyMode.PUBLICATION) {
       AddCommentMutationImpl(this)
+    }
+  
+    override val completeOnboarding by lazy(LazyThreadSafetyMode.PUBLICATION) {
+      CompleteOnboardingMutationImpl(this)
     }
   
     override val createCourse by lazy(LazyThreadSafetyMode.PUBLICATION) {
@@ -198,6 +204,7 @@ private class SkilltokConnectorConnectorImpl(
   override fun mutations(): List<com.google.firebase.dataconnect.generated.GeneratedMutation<SkilltokConnectorConnector, *, *>> =
     listOf(
       addComment,
+        completeOnboarding,
         createCourse,
         createLesson,
         createModule,
@@ -371,6 +378,21 @@ private class AddCommentMutationImpl(
     AddCommentMutation.Companion.operationName,
     AddCommentMutation.Companion.dataDeserializer,
     AddCommentMutation.Companion.variablesSerializer,
+  )
+
+
+private class CompleteOnboardingMutationImpl(
+  connector: SkilltokConnectorConnector
+):
+  CompleteOnboardingMutation,
+  SkilltokConnectorConnectorGeneratedMutationImpl<
+      CompleteOnboardingMutation.Data,
+      CompleteOnboardingMutation.Variables
+  >(
+    connector,
+    CompleteOnboardingMutation.Companion.operationName,
+    CompleteOnboardingMutation.Companion.dataDeserializer,
+    CompleteOnboardingMutation.Companion.variablesSerializer,
   )
 
 
