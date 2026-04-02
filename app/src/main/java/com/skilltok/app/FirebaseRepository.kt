@@ -260,7 +260,17 @@ class FirebaseRepository {
         try {
             val result = connector.getUserProfile.execute(id = uid)
             val data = result.data.user
-            if (data != null) emit(User(id = data.id, name = data.displayName, email = data.email, photoUrl = data.photoUrl, bio = data.bio, role = data.role))
+            if (data != null) emit(User(
+                id = data.id,
+                name = data.displayName,
+                email = data.email,
+                photoUrl = data.photoUrl,
+                bio = data.bio,
+                role = data.role,
+                interests = data.interests?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+                goals = data.goals?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+                onboardingCompleted = data.onboardingCompleted
+            ))
         } catch (e: Exception) { 
             Log.e("FirebaseRepository", "Get profile failed", e)
             emit(null) 
@@ -269,7 +279,11 @@ class FirebaseRepository {
 
     suspend fun updateUserProfile(user: User) {
         try {
-            connector.upsertUser.execute(displayName = user.name, email = user.email, photoUrl = user.photoUrl ?: "")
+            connector.upsertUser.execute(displayName = user.name, email = user.email, photoUrl = user.photoUrl ?: "") {
+                if (user.interests.isNotEmpty()) interests = user.interests.joinToString(",")
+                if (user.goals.isNotEmpty()) goals = user.goals.joinToString(",")
+                onboardingCompleted = user.onboardingCompleted
+            }
         } catch (e: Exception) { Log.e("FirebaseRepository", "Update profile failed", e) }
     }
 }

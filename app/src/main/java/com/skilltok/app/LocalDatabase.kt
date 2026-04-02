@@ -10,12 +10,15 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 @Entity(tableName = "local_user_profile")
 data class LocalUserEntity(
     @PrimaryKey val id: String,
-    val firebaseId: String? = null, // Sync link
+    val firebaseId: String? = null,
     val name: String,
     val email: String,
     val xp: Int,
     val streak: Int,
-    val level: Int
+    val level: Int,
+    val interests: String = "",
+    val goals: String = "",
+    val onboardingCompleted: Boolean = false
 )
 
 @Entity(tableName = "local_courses")
@@ -130,7 +133,7 @@ interface SkillTokDao {
 
 @Database(
     entities = [LocalUserEntity::class, LocalCourseEntity::class, LocalEnrollmentEntity::class, LocalCompletionEntity::class, LocalInteractionEntity::class, LocalCommentEntity::class, LocalSavedEntity::class], 
-    version = 5, // Upgraded version for schema change
+    version = 6,
     exportSchema = false
 )
 abstract class SkillTokDatabase : RoomDatabase() {

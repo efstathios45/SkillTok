@@ -1,12 +1,15 @@
 # Operations for SkillTok PostgreSQL Database
 
 # --- User Mutations ---
-mutation UpsertUser($displayName: String!, $email: String!, $photoUrl: String!) @auth(level: USER) {
+mutation UpsertUser($displayName: String!, $email: String!, $photoUrl: String!, $interests: String, $goals: String, $onboardingCompleted: Boolean) @auth(level: USER) {
   user_upsert(data: {
     id_expr: "auth.uid",
     displayName: $displayName,
     email: $email,
-    photoUrl: $photoUrl
+    photoUrl: $photoUrl,
+    interests: $interests,
+    goals: $goals,
+    onboardingCompleted: $onboardingCompleted
   })
 }
 
@@ -18,6 +21,9 @@ query GetUserProfile($id: String!) @auth(level: USER) {
     photoUrl
     bio
     role
+    interests
+    goals
+    onboardingCompleted
   }
 }
 

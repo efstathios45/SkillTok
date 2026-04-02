@@ -259,6 +259,9 @@ fun ReelItem(
     
     var showHeartAnim by remember { mutableStateOf(false) }
     var isManuallyPaused by remember { mutableStateOf(false) }
+    var showSeekBack by remember { mutableStateOf(false) }
+    var showSeekForward by remember { mutableStateOf(false) }
+    var reelWebView by remember { mutableStateOf<WebView?>(null) }
     
     val enrollments by viewModel.enrollments.collectAsState()
     val isEnrolled = enrollments.any { it.courseId == course.id }
@@ -276,17 +279,59 @@ fun ReelItem(
     Box(modifier = Modifier.fillMaxSize()) {
         YouTubePlayer(
             videoId = lesson.videoUrl, 
-            modifier = Modifier.pointerInput(Unit) {
+            modifier = Modifier.pointerInput(reelWebView) {
+                val width = size.width
                 detectTapGestures(
-                    onTap = {
-                        isManuallyPaused = !isManuallyPaused
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onTap = { offset ->
+                        val tapZone = offset.x / width
+                        when {
+                            tapZone < 0.3f -> {
+                                reelWebView?.evaluateJavascript("seek(-10)", null)
+                                showSeekBack = true
+                                SoundManager.playSeekSound(context)
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch { delay(600); showSeekBack = false }
+                            }
+                            tapZone > 0.7f -> {
+                                reelWebView?.evaluateJavascript("seek(10)", null)
+                                showSeekForward = true
+                                SoundManager.playSeekSound(context)
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch { delay(600); showSeekForward = false }
+                            }
+                            else -> {
+                                isManuallyPaused = !isManuallyPaused
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                        }
                     },
-                    onDoubleTap = {
-                        if (!isLiked) viewModel.toggleLike(lesson.id)
-                        showHeartAnim = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        scope.launch { delay(800); showHeartAnim = false }
+                    onDoubleTap = { offset ->
+                        val tapZone = offset.x / width
+                        when {
+                            tapZone < 0.3f -> {
+                                reelWebView?.evaluateJavascript("seek(-10)", null)
+                                showSeekBack = true
+                                SoundManager.playSeekSound(context)
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch { delay(600); showSeekBack = false }
+                            }
+                            tapZone > 0.7f -> {
+                                reelWebView?.evaluateJavascript("seek(10)", null)
+                                showSeekForward = true
+                                SoundManager.playSeekSound(context)
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch { delay(600); showSeekForward = false }
+                            }
+                            else -> {
+                                if (!isLiked) {
+                                    viewModel.toggleLike(lesson.id)
+                                    SoundManager.playLikeSound(context)
+                                }
+                                showHeartAnim = true
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch { delay(800); showHeartAnim = false }
+                            }
+                        }
                     },
                     onLongPress = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -297,8 +342,35 @@ fun ReelItem(
             isReel = true, 
             isPlaying = isPlaying && !isManuallyPaused && !showComments, 
             isMutedGlobal = isMutedGlobal, 
-            onMuteToggle = onMuteToggle
+            onMuteToggle = onMuteToggle,
+            onWebViewReady = { reelWebView = it }
         )
+
+        // Seek Back Indicator (left side)
+        AnimatedVisibility(
+            visible = showSeekBack,
+            enter = fadeIn(tween(100)) + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)),
+            exit = fadeOut(tween(300)),
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 40.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Replay10, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                Text("10s", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Seek Forward Indicator (right side)
+        AnimatedVisibility(
+            visible = showSeekForward,
+            enter = fadeIn(tween(100)) + scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)),
+            exit = fadeOut(tween(300)),
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 40.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Forward10, null, tint = Color.White, modifier = Modifier.size(48.dp))
+                Text("10s", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
 
         // Center Heart Popup Animation
         AnimatedVisibility(
@@ -357,6 +429,7 @@ fun ReelItem(
                                 .background(Color.White, CircleShape)
                                 .clickable {
                                     viewModel.enrollInCourse(course.id, lesson.id)
+                                    SoundManager.playEnrollSound(context)
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                             contentAlignment = Alignment.Center
@@ -423,6 +496,7 @@ fun ReelItem(
                 activeColor = Color.Red,
                 onClick = { 
                     viewModel.toggleLike(lesson.id)
+                    SoundManager.playLikeSound(context)
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
@@ -448,6 +522,7 @@ fun ReelItem(
                 activeColor = Color(0xFFFFD700),
                 onClick = { 
                     viewModel.toggleSave(lesson.id)
+                    SoundManager.playSaveSound(context)
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
@@ -481,7 +556,10 @@ fun ReelItem(
                 lessonId = lesson.id,
                 comments = lessonComments,
                 onDismiss = { showComments = false },
-                onSendComment = { viewModel.addComment(lesson.id, it) }
+                onSendComment = { text ->
+                    viewModel.addComment(lesson.id, text)
+                    SoundManager.playCommentSound(context)
+                }
             )
         }
     }
@@ -580,7 +658,8 @@ fun YouTubePlayer(
     isReel: Boolean = false, 
     isPlaying: Boolean = true,
     isMutedGlobal: Boolean = false,
-    onMuteToggle: (Boolean) -> Unit = {}
+    onMuteToggle: (Boolean) -> Unit = {},
+    onWebViewReady: ((WebView) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -670,6 +749,10 @@ fun YouTubePlayer(
             webChromeClient = WebChromeClient()
             loadDataWithBaseURL("https://www.youtube-nocookie.com", html, "text/html", "UTF-8", null)
         }
+    }
+
+    LaunchedEffect(webView) {
+        onWebViewReady?.invoke(webView)
     }
 
     DisposableEffect(lifecycleOwner, webView) {

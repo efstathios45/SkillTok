@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -35,6 +37,14 @@ import androidx.compose.foundation.pager.rememberPagerState
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OnboardingScreen(navController: NavHostController, viewModel: MainViewModel) {
+    val userProfile by viewModel.userProfile.collectAsState()
+    
+    LaunchedEffect(userProfile?.onboardingCompleted) {
+        if (userProfile?.onboardingCompleted == true) {
+            navController.navigate("home") { popUpTo("onboarding") { inclusive = true } }
+        }
+    }
+    
     var step by remember { mutableIntStateOf(1) }
     val interests = listOf("Leadership", "Marketing", "Technology", "Communication", "Human Resources", "Psychology", "Business", "Science")
     val goals = listOf("Career Growth", "Personal Development", "Skill Certification", "Entrepreneurship", "Academic Support")
@@ -395,16 +405,19 @@ fun ProfileMenuItem(icon: ImageVector, label: String, color: Color = MaterialThe
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CourseDetailPage(courseId: String, navController: NavHostController, viewModel: MainViewModel) {
+    val context = LocalContext.current
     val courses by viewModel.courses.collectAsState()
     val course = courses.find { it.id == courseId } ?: return
     val modules by viewModel.getCourseModules(courseId).collectAsState(initial = emptyList())
     val isEnrolled = viewModel.isEnrolled(courseId)
     val enrollmentState by viewModel.enrollmentState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val totalLessons = modules.size * 3
     
     LaunchedEffect(enrollmentState) {
         when (enrollmentState) {
             is EnrollmentState.Success -> {
+                SoundManager.playEnrollSound(context)
                 snackbarHostState.showSnackbar("Successfully enrolled in ${course.title}")
                 viewModel.resetEnrollmentState()
             }
@@ -417,60 +430,132 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Course Details", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState())) {
-            AsyncImage(
-                model = course.thumbnailUrl,
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth().height(240.dp),
-                contentScale = ContentScale.Crop
-            )
-            
-            Column(modifier = Modifier.padding(24.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CourseBadge(course.subject)
-                    Spacer(modifier = Modifier.weight(1f))
-                    if (isEnrolled) {
-                        Button(
-                            onClick = { navController.navigate("reels/${course.id}/resume") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(12.dp)
+        Box(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                // Hero Section with course image filling top
+                Box(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+                    AsyncImage(
+                        model = course.thumbnailUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                    // Gradient overlay for readability
+                    Box(modifier = Modifier.fillMaxSize().background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0.0f to Color.Black.copy(alpha = 0.3f),
+                            0.5f to Color.Transparent,
+                            0.85f to Color.Black.copy(alpha = 0.6f),
+                            1.0f to Color.Black.copy(alpha = 0.85f)
+                        )
+                    ))
+
+                    // Top navigation bar overlay
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { navController.popBackStack() },
+                            modifier = Modifier.background(Color.Black.copy(alpha = 0.3f), CircleShape)
                         ) {
-                            Icon(Icons.Default.PlayArrow, null)
-                            Text("REELVIEW")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (isEnrolled) {
+                            Button(
+                                onClick = { navController.navigate("reels/${course.id}/resume") },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(20.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("REELVIEW", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
                         }
                     }
+
+                    // Course title overlay on image
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(horizontal = 24.dp, vertical = 16.dp)
+                    ) {
+                        CourseBadge(course.subject)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            course.title,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            maxLines = 2
+                        )
+                    }
                 }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(course.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(course.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp)
-                
-                Spacer(modifier = Modifier.height(32.dp))
-                
-                Text("Curriculum", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                modules.forEach { module ->
-                    ModuleListItem(module, viewModel, navController)
+
+                // Stats row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CourseStatItem(Icons.Default.Star, "${course.rating}", "Rating")
+                    Box(modifier = Modifier.width(1.dp).height(32.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+                    CourseStatItem(Icons.Default.People, "${course.learnersCount}", "Learners")
+                    Box(modifier = Modifier.width(1.dp).height(32.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+                    CourseStatItem(Icons.Default.School, course.level, "Level")
+                    Box(modifier = Modifier.width(1.dp).height(32.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)))
+                    CourseStatItem(Icons.AutoMirrored.Filled.MenuBook, "${modules.size}", "Modules")
                 }
-                
-                Spacer(modifier = Modifier.height(32.dp))
-                
-                if (!isEnrolled) {
+
+                Column(modifier = Modifier.padding(24.dp)) {
+                    // About section
+                    Text("About This Course", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(course.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp, fontSize = 15.sp)
+                    
+                    Spacer(modifier = Modifier.height(28.dp))
+                    
+                    // Curriculum section
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Curriculum", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text("${modules.size} modules", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    modules.forEach { module ->
+                        ModuleListItem(module, viewModel, navController)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(100.dp))
+                }
+            }
+
+            // Sticky bottom CTA
+            if (!isEnrolled) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                0.0f to MaterialTheme.colorScheme.background.copy(alpha = 0.0f),
+                                0.3f to MaterialTheme.colorScheme.background,
+                                1.0f to MaterialTheme.colorScheme.background
+                            )
+                        )
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .navigationBarsPadding()
+                ) {
                     Button(
                         onClick = { 
                             viewModel.enrollInCourse(course.id)
@@ -483,12 +568,24 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
                         if (enrollmentState is EnrollmentState.Loading) {
                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                         } else {
-                            Text("Enroll Now", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Icon(Icons.Default.School, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Enroll Now - Free", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun CourseStatItem(icon: ImageVector, value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
