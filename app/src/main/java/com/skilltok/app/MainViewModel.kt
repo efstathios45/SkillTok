@@ -25,7 +25,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val auth = FirebaseAuth.getInstance()
     private val db = SkillTokDatabase.getDatabase(application).dao()
 
-    // --- BULLETPROOF INITIALIZATION: Always start with MockData ---
     private val _courses = MutableStateFlow<List<Course>>(MockData.courses)
     val courses: StateFlow<List<Course>> = _courses.asStateFlow()
 
@@ -55,9 +54,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var isSeeding = false
 
     init {
-        // 1. First, try to load from Room (if any previously saved)
         loadLocalData()
-        // 2. Then, try to sync with Firebase
         loadCourses()
         observeAuthState()
     }
@@ -85,9 +82,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.getRemoteCourses().collect { remoteCourses ->
                 if (remoteCourses.isNotEmpty()) {
-                    // Update UI with real cloud data
                     _courses.value = remoteCourses
-                    // Sync to Local Cache
                     remoteCourses.forEach { 
                         db.insertCourse(
                             LocalCourseEntity(
@@ -101,7 +96,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ) 
                     }
                 } else if (auth.currentUser != null && !isSeeding) {
-                    // Cloud is empty but we are logged in -> SEED IT
                     seedDatabase()
                 }
             }
@@ -123,8 +117,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (newModuleId != null) {
                             MockData.lessons.filter { it.moduleId == mockModule.id }.forEach { mockLesson ->
                                 val newLessonId = repository.addLesson(mockLesson.copy(moduleId = newModuleId, courseId = newCourseId))
-                                if (newLessonId != null && mockLesson.type == "reel") {
-                                    repository.addReel(mockLesson, newLessonId)
+                                if (newLessonId != null) {
+                                    // Ensure all seeded video content is available in the Reels feed for interactions
+                                    repository.addReel(mockLesson.copy(courseId = newCourseId), newLessonId)
                                 }
                             }
                         }
@@ -132,10 +127,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             Log.d("MainViewModel", "Cloud Seeding Finished Successfully")
-            // Reload courses from the cloud we just filled
             repository.getRemoteCourses().collect { if (it.isNotEmpty()) _courses.value = it }
         } catch (e: Exception) {
-            Log.e("MainViewModel", "Cloud Seed Failed: ${e.message}. (Ensure you ran firebase deploy)")
+            Log.e("MainViewModel", "Cloud Seed Failed: ${e.message}")
         } finally {
             isSeeding = false
         }
@@ -170,40 +164,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadUserData(uid: String) {
         userDataJob?.cancel()
         userDataJob = viewModelScope.launch {
-            // Immediate local load for profile
             launch {
                 db.getUserProfile(uid).collect { local ->
                     if (local != null && _userProfile.value == null) {
-                        _userProfile.value = User(
-                            id = local.id,
-                            name = local.name,
-                            email = local.email,
-                            xp = local.xp,
-                            streak = local.streak,
-                            level = local.level
-                        )
+                        _userProfile.value = User(id = local.id, name = local.name, email = local.email, xp = local.xp, streak = local.streak, level = local.level)
                     }
                 }
             }
-            // Fetch cloud profile and update local
             launch {
                 repository.getUserProfile(uid).collect { remoteUser ->
                     if (remoteUser != null) {
                         _userProfile.value = remoteUser
-                        db.insertUserProfile(
-                            LocalUserEntity(
-                                id = remoteUser.id,
-                                name = remoteUser.name,
-                                email = remoteUser.email,
-                                xp = remoteUser.xp,
-                                streak = remoteUser.streak,
-                                level = remoteUser.level
-                            )
-                        )
+                        db.insertUserProfile(LocalUserEntity(id = remoteUser.id, name = remoteUser.name, email = remoteUser.email, xp = remoteUser.xp, streak = remoteUser.streak, level = remoteUser.level))
                     }
                 }
             }
-            // Cloud sync for social interactions
             launch { repository.getEnrollments(uid).collect { _enrollments.value = it } }
             launch { repository.getUserSaved(uid).collect { _savedVideos.value = it.toSet() } }
             launch { repository.getUserLikes(uid).collect { _likes.value = it.toSet() } }
@@ -211,24 +186,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null) {
-        val newUser = User(
-            id = firebaseUser.uid,
-            name = customName ?: firebaseUser.displayName ?: "Learner",
-            email = firebaseUser.email ?: "",
-            photoUrl = firebaseUser.photoUrl?.toString()
-        )
+        val newUser = User(id = firebaseUser.uid, name = customName ?: firebaseUser.displayName ?: "Learner", email = firebaseUser.email ?: "", photoUrl = firebaseUser.photoUrl?.toString())
         repository.updateUserProfile(newUser)
         _userProfile.value = newUser
-        db.insertUserProfile(
-            LocalUserEntity(
-                id = newUser.id,
-                name = newUser.name,
-                email = newUser.email,
-                xp = 0,
-                streak = 0,
-                level = 1
-            )
-        )
+        db.insertUserProfile(LocalUserEntity(id = newUser.id, name = newUser.name, email = newUser.email, xp = 0, streak = 0, level = 1))
     }
 
     fun toggleLike(lessonId: String) {
@@ -289,16 +250,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _userProfile.value = updated
         viewModelScope.launch {
             repository.updateUserProfile(updated)
-            db.insertUserProfile(
-                LocalUserEntity(
-                    id = updated.id,
-                    name = updated.name,
-                    email = updated.email,
-                    xp = updated.xp,
-                    streak = updated.streak,
-                    level = updated.level
-                )
-            )
+            db.insertUserProfile(LocalUserEntity(id = updated.id, name = updated.name, email = updated.email, xp = updated.xp, streak = updated.streak, level = updated.level))
         }
     }
 
@@ -310,18 +262,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> = flow {
-        // EMIT MOCK DATA IMMEDIATELY
         val initial = MockData.lessons.filter { it.courseId == courseId }
         emit(initial)
-
-        // THEN TRY TO LOAD FROM FIREBASE
         repository.getModules(courseId).collect { mods ->
             if (mods.isNotEmpty()) {
                 val allLessons = mutableListOf<Lesson>()
                 for (mod in mods) {
                     repository.getLessons(mod.id).collect { lessons ->
                         allLessons.addAll(lessons)
-                        // Emit as we find them to avoid "loading forever"
                         if (allLessons.isNotEmpty()) emit(allLessons.toList())
                     }
                 }
@@ -365,7 +313,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val moduleId = repository.addModule(Module(courseId = courseId, title = mData.title, orderIndex = mIdx))
                     if (moduleId != null) {
                         mData.lessons.forEachIndexed { lIdx, lData ->
-                            repository.addLesson(Lesson(moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video"))
+                            val lesson = Lesson(moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video", type = "reel")
+                            val newLessonId = repository.addLesson(lesson)
+                            if (newLessonId != null) {
+                                // Important: Register as Reel to allow comments/likes in the feed
+                                repository.addReel(lesson, newLessonId)
+                            }
                         }
                     }
                 }
