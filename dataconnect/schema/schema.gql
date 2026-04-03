@@ -8,6 +8,9 @@ type User @table(key: "id") {
   photoUrl: String
   bio: String
   role: String! @default(value: "learner")
+  onboardingCompleted: Boolean! @default(value: false)
+  interests: [String!]
+  goals: [String!]
   createdAt: Timestamp! @default(expr: "request.time")
 }
 

@@ -28,9 +28,78 @@ public interface UpsertUserMutation :
   
     val displayName: String,
     val email: String,
-    val photoUrl: String
+    val photoUrl: String,
+    val onboardingCompleted: com.google.firebase.dataconnect.OptionalVariable<Boolean?>,
+    val interests: com.google.firebase.dataconnect.OptionalVariable<List<String>?>,
+    val goals: com.google.firebase.dataconnect.OptionalVariable<List<String>?>
   ) {
     
+    
+      
+      @kotlin.DslMarker public annotation class BuilderDsl
+
+      @BuilderDsl
+      public interface Builder {
+        public var displayName: String
+        public var email: String
+        public var photoUrl: String
+        public var onboardingCompleted: Boolean?
+        public var interests: List<String>?
+        public var goals: List<String>?
+        
+      }
+
+      public companion object {
+        @Suppress("NAME_SHADOWING")
+        public fun build(
+          displayName: String,email: String,photoUrl: String,
+          block_: Builder.() -> Unit
+        ): Variables {
+          var displayName= displayName
+            var email= email
+            var photoUrl= photoUrl
+            var onboardingCompleted: com.google.firebase.dataconnect.OptionalVariable<Boolean?> =
+                com.google.firebase.dataconnect.OptionalVariable.Undefined
+            var interests: com.google.firebase.dataconnect.OptionalVariable<List<String>?> =
+                com.google.firebase.dataconnect.OptionalVariable.Undefined
+            var goals: com.google.firebase.dataconnect.OptionalVariable<List<String>?> =
+                com.google.firebase.dataconnect.OptionalVariable.Undefined
+            
+
+          return object : Builder {
+            override var displayName: String
+              get() = throw UnsupportedOperationException("getting builder values is not supported")
+              set(value_) { displayName = value_ }
+              
+            override var email: String
+              get() = throw UnsupportedOperationException("getting builder values is not supported")
+              set(value_) { email = value_ }
+              
+            override var photoUrl: String
+              get() = throw UnsupportedOperationException("getting builder values is not supported")
+              set(value_) { photoUrl = value_ }
+              
+            override var onboardingCompleted: Boolean?
+              get() = throw UnsupportedOperationException("getting builder values is not supported")
+              set(value_) { onboardingCompleted = com.google.firebase.dataconnect.OptionalVariable.Value(value_) }
+              
+            override var interests: List<String>?
+              get() = throw UnsupportedOperationException("getting builder values is not supported")
+              set(value_) { interests = com.google.firebase.dataconnect.OptionalVariable.Value(value_) }
+              
+            override var goals: List<String>?
+              get() = throw UnsupportedOperationException("getting builder values is not supported")
+              set(value_) { goals = com.google.firebase.dataconnect.OptionalVariable.Value(value_) }
+              
+            
+          }.apply(block_)
+          .let {
+            Variables(
+              displayName=displayName,email=email,photoUrl=photoUrl,onboardingCompleted=onboardingCompleted,interests=interests,goals=goals,
+            )
+          }
+        }
+      }
     
   }
   
@@ -61,6 +130,7 @@ public fun UpsertUserMutation.ref(
   
     displayName: String,email: String,photoUrl: String,
   
+    block_: UpsertUserMutation.Variables.Builder.() -> Unit = {}
   
 ): com.google.firebase.dataconnect.MutationRef<
     UpsertUserMutation.Data,
@@ -68,9 +138,10 @@ public fun UpsertUserMutation.ref(
   > =
   ref(
     
-      UpsertUserMutation.Variables(
+      UpsertUserMutation.Variables.build(
         displayName=displayName,email=email,photoUrl=photoUrl,
   
+    block_
       )
     
   )
@@ -79,6 +150,7 @@ public suspend fun UpsertUserMutation.execute(
   
     displayName: String,email: String,photoUrl: String,
   
+    block_: UpsertUserMutation.Variables.Builder.() -> Unit = {}
   
   ): com.google.firebase.dataconnect.MutationResult<
     UpsertUserMutation.Data,
@@ -88,6 +160,7 @@ public suspend fun UpsertUserMutation.execute(
     
       displayName=displayName,email=email,photoUrl=photoUrl,
   
+    block_
     
   ).execute()
 

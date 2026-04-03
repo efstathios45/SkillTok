@@ -24,6 +24,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = FirebaseRepository()
     private val auth = FirebaseAuth.getInstance()
     private val db = SkillTokDatabase.getDatabase(application).dao()
+    private val soundManager = SoundManager(application)
 
     private val _courses = MutableStateFlow<List<Course>>(MockData.courses)
     val courses: StateFlow<List<Course>> = _courses.asStateFlow()
@@ -138,7 +139,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             auth.authStateFlow().collect { firebaseUser ->
                 if (firebaseUser != null) {
-                    syncUserToDatabase(firebaseUser)
                     loadUserData(firebaseUser.uid)
                     loadCourses()
                 } else {
@@ -175,6 +175,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (remoteUser != null) {
                         _userProfile.value = remoteUser
                         db.insertUserProfile(LocalUserEntity(id = remoteUser.id, name = remoteUser.name, email = remoteUser.email, xp = remoteUser.xp, streak = remoteUser.streak, level = remoteUser.level))
+                    } else {
+                        // If no remote profile, sync current Firebase user to remote
+                        auth.currentUser?.let { syncUserToDatabase(it) }
                     }
                 }
             }
@@ -185,7 +188,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null) {
-        val newUser = User(id = firebaseUser.uid, name = customName ?: firebaseUser.displayName ?: "Learner", email = firebaseUser.email ?: "", photoUrl = firebaseUser.photoUrl?.toString())
+        val newUser = User(
+            id = firebaseUser.uid, 
+            name = customName ?: firebaseUser.displayName ?: "Learner", 
+            email = firebaseUser.email ?: "", 
+            photoUrl = firebaseUser.photoUrl?.toString(),
+            onboardingCompleted = _userProfile.value?.onboardingCompleted ?: false,
+            interests = _userProfile.value?.interests ?: emptyList(),
+            goals = _userProfile.value?.goals ?: emptyList()
+        )
         repository.updateUserProfile(newUser)
         _userProfile.value = newUser
         db.insertUserProfile(LocalUserEntity(id = newUser.id, name = newUser.name, email = newUser.email, xp = 0, streak = 0, level = 1))
@@ -195,7 +206,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val uid = auth.currentUser?.uid ?: return
         val currentlyLiked = _likes.value.contains(lessonId)
         viewModelScope.launch {
-            if (currentlyLiked) _likes.value -= lessonId else _likes.value += lessonId
+            if (currentlyLiked) _likes.value -= lessonId else {
+                _likes.value += lessonId
+                soundManager.playLikeSound()
+            }
             repository.toggleLike(lessonId, !currentlyLiked)
             db.insertInteraction(LocalInteractionEntity("${uid}_$lessonId", uid, lessonId, !currentlyLiked))
         }
@@ -211,6 +225,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 db.deleteSaved(uid, lessonId)
             } else {
                 _savedVideos.value += lessonId
+                soundManager.playSaveSound()
                 repository.toggleSave(lessonId, true)
                 db.insertSaved(LocalSavedEntity("${uid}_$lessonId", uid, lessonId))
             }
@@ -225,6 +240,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             db.insertComment(LocalCommentEntity(commentId, lessonId, user.id, user.name, text, timestamp))
             repository.addComment(comment)
+            soundManager.playCommentSound()
             loadComments(lessonId)
         }
     }
@@ -281,12 +297,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enrollInCourse(courseId: String, startLessonId: String? = null) {
         val uid = auth.currentUser?.uid ?: return
+        if (isEnrolled(courseId)) {
+            _enrollmentState.value = EnrollmentState.Success(courseId)
+            return
+        }
+        
         viewModelScope.launch {
             _enrollmentState.value = EnrollmentState.Loading
             try {
                 repository.enrollInCourse(courseId)
                 db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
                 _enrollments.value += Enrollment(courseId = courseId)
+                soundManager.playEnrollSound()
                 _enrollmentState.value = EnrollmentState.Success(courseId)
             } catch (e: Exception) {
                 _enrollmentState.value = EnrollmentState.Error(e.message ?: "Enrollment failed")

@@ -240,16 +240,17 @@ however, if they _are_ specified,
 then they are specified in a Kotlin DSL block as the last argument
 of the `execute()` method.
 
-For example, the "AddComment" mutation has 2 optional variables ("reelId" and "courseId")
-and can be executed via the [SkilltokConnectorConnector.addComment]
+For example, the "UpsertUser" mutation has 3 optional variables ("onboardingCompleted", "interests", and "goals")
+and can be executed via the [SkilltokConnectorConnector.upsertUser]
 property as follows:
 
 ```kotlin
 val connector = SkilltokConnectorConnector.instance
-val mutationResult = connector.addComment.execute(text="qux") {
-  reelId = java.util.UUID.randomUUID()
-  courseId = java.util.UUID.randomUUID()
+val mutationResult = connector.upsertUser.execute(displayName="garply", email="qux", photoUrl="qux") {
+  onboardingCompleted = false
+  interests = listOf(...)
+  goals = listOf(...)
 }
-println("AddComment mutation returned: ${mutationResult.data}")
+println("UpsertUser mutation returned: ${mutationResult.data}")
 ```
 

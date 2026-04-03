@@ -161,78 +161,108 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 @Composable
 fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: NavHostController, viewModel: MainViewModel) {
     val courses by viewModel.courses.collectAsState()
-    val course = courses.find { it.id == courseId } ?: return
+    
+    // Resolve course with mapping check to avoid blank screen
+    val course = remember(courses, courseId) {
+        courses.find { it.id == courseId || FirebaseRepository.getMockId(it.id) == courseId }
+    }
     
     val lessonsFlow = remember(courseId) { viewModel.getModuleLessonsForReels(courseId) }
     val lessons by lessonsFlow.collectAsState(initial = emptyList())
     
-    if (lessons.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = Color.White)
-        }
-        return
-    }
-
-    val initialPage = if (startLessonId != null && startLessonId != "first" && startLessonId != "resume") {
-        lessons.indexOfFirst { it.id == startLessonId }.coerceAtLeast(0)
-    } else 0
-    
-    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { lessons.size })
-    var isMutedGlobal by remember { mutableStateOf(false) }
-
+    // Persistent background and back button to avoid "stuck" blank screen
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        VerticalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            beyondViewportPageCount = 1
-        ) { page ->
-            val lesson = lessons[page]
-            val isCurrentPage = pagerState.currentPage == page
-            ReelItem(
-                lesson = lesson, 
-                course = course, 
-                navController = navController, 
-                viewModel = viewModel, 
-                isPlaying = isCurrentPage,
-                isMutedGlobal = isMutedGlobal,
-                onMuteToggle = { isMutedGlobal = it }
-            )
-        }
-
-        // Professional Top Header - Improved to use "wasted screen"
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 16.dp)
-                .statusBarsPadding()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = { navController.popBackStack() },
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text(course.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text("${pagerState.currentPage + 1} of ${lessons.size} lessons", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+        if (course == null || lessons.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color.White)
+            }
+        } else {
+            // Resolve start index
+            val initialPage = remember(lessons, startLessonId) {
+                if (startLessonId == null || startLessonId == "resume" || startLessonId == "first") {
+                    0
+                } else {
+                    val idx = lessons.indexOfFirst { it.id == startLessonId }
+                    if (idx != -1) idx else 0
                 }
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            LinearProgressIndicator(
-                progress = { (pagerState.currentPage + 1).toFloat() / lessons.size },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                color = AppColors.Primary,
-                trackColor = Color.White.copy(alpha = 0.1f)
-            )
+            val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { lessons.size })
+
+            // Ensure we jump to the correct page if it wasn't resolved on first composition
+            LaunchedEffect(initialPage) {
+                if (initialPage != pagerState.currentPage) {
+                    pagerState.scrollToPage(initialPage)
+                }
+            }
+
+            var isMutedGlobal by remember { mutableStateOf(false) }
+
+            VerticalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 1
+            ) { page ->
+                if (page < lessons.size) {
+                    val lesson = lessons[page]
+                    val isCurrentPage = pagerState.currentPage == page
+                    ReelItem(
+                        lesson = lesson,
+                        course = course,
+                        navController = navController,
+                        viewModel = viewModel,
+                        isPlaying = isCurrentPage,
+                        isMutedGlobal = isMutedGlobal,
+                        onMuteToggle = { isMutedGlobal = it }
+                    )
+                }
+            }
+
+            // Lesson Progress Header
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp)
+                    .statusBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { navController.popBackStack() },
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(course.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                        Text("${pagerState.currentPage + 1} of ${lessons.size} lessons", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                LinearProgressIndicator(
+                    progress = { if (lessons.isNotEmpty()) (pagerState.currentPage + 1).toFloat() / lessons.size else 0f },
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = AppColors.Primary,
+                    trackColor = Color.White.copy(alpha = 0.1f)
+                )
+            }
+        }
+
+        // Always show back button even during loading if data is taking time
+        if (course == null || lessons.isEmpty()) {
+            IconButton(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+            }
         }
     }
 }
@@ -250,6 +280,7 @@ fun ReelItem(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val soundManager = remember { SoundManager(context) }
     
     val likes by viewModel.likes.collectAsState()
     val isLiked = likes.contains(lesson.id)
@@ -259,6 +290,8 @@ fun ReelItem(
     
     var showHeartAnim by remember { mutableStateOf(false) }
     var isManuallyPaused by remember { mutableStateOf(false) }
+    var seekTrigger by remember { mutableLongStateOf(0L) } // Timestamp to trigger seek
+    var seekAmount by remember { mutableIntStateOf(0) }
     
     val enrollments by viewModel.enrollments.collectAsState()
     val isEnrolled = enrollments.any { it.courseId == course.id }
@@ -282,8 +315,16 @@ fun ReelItem(
                         isManuallyPaused = !isManuallyPaused
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
-                    onDoubleTap = {
-                        if (!isLiked) viewModel.toggleLike(lesson.id)
+                    onDoubleTap = { offset ->
+                        val isRightSide = offset.x > size.width / 2
+                        seekAmount = if (isRightSide) 10 else -10
+                        seekTrigger = System.currentTimeMillis()
+                        
+                        // Like logic
+                        if (!isLiked) {
+                            viewModel.toggleLike(lesson.id)
+                            soundManager.playLikeSound()
+                        }
                         showHeartAnim = true
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch { delay(800); showHeartAnim = false }
@@ -297,7 +338,9 @@ fun ReelItem(
             isReel = true, 
             isPlaying = isPlaying && !isManuallyPaused && !showComments, 
             isMutedGlobal = isMutedGlobal, 
-            onMuteToggle = onMuteToggle
+            onMuteToggle = onMuteToggle,
+            seekTrigger = seekTrigger,
+            seekAmount = seekAmount
         )
 
         // Center Heart Popup Animation
@@ -357,6 +400,7 @@ fun ReelItem(
                                 .background(Color.White, CircleShape)
                                 .clickable {
                                     viewModel.enrollInCourse(course.id, lesson.id)
+                                    soundManager.playEnrollSound()
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                             contentAlignment = Alignment.Center
@@ -423,6 +467,7 @@ fun ReelItem(
                 activeColor = Color.Red,
                 onClick = { 
                     viewModel.toggleLike(lesson.id)
+                    soundManager.playLikeSound()
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
@@ -448,6 +493,7 @@ fun ReelItem(
                 activeColor = Color(0xFFFFD700),
                 onClick = { 
                     viewModel.toggleSave(lesson.id)
+                    soundManager.playSaveSound()
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
@@ -481,7 +527,10 @@ fun ReelItem(
                 lessonId = lesson.id,
                 comments = lessonComments,
                 onDismiss = { showComments = false },
-                onSendComment = { viewModel.addComment(lesson.id, it) }
+                onSendComment = { 
+                    viewModel.addComment(lesson.id, it)
+                    soundManager.playCommentSound()
+                }
             )
         }
     }
@@ -580,7 +629,9 @@ fun YouTubePlayer(
     isReel: Boolean = false, 
     isPlaying: Boolean = true,
     isMutedGlobal: Boolean = false,
-    onMuteToggle: (Boolean) -> Unit = {}
+    onMuteToggle: (Boolean) -> Unit = {},
+    seekTrigger: Long = 0L,
+    seekAmount: Int = 0
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -638,7 +689,7 @@ fun YouTubePlayer(
                     if (mute) player.mute(); else player.unMute();
                 }
                 function seek(seconds) {
-                    if (ready) player.seekTo(player.getCurrentTime() + seconds, true);
+                    if (ready && player.seekTo) player.seekTo(player.getCurrentTime() + seconds, true);
                 }
                 function setPlayback(play) {
                     if (!ready) return;
@@ -694,6 +745,12 @@ fun YouTubePlayer(
     LaunchedEffect(isReady, isMutedGlobal) {
         if (isReady) {
             webView.evaluateJavascript("setMute($isMutedGlobal)", null)
+        }
+    }
+    
+    LaunchedEffect(seekTrigger) {
+        if (isReady && seekTrigger > 0) {
+            webView.evaluateJavascript("seek($seekAmount)", null)
         }
     }
 
