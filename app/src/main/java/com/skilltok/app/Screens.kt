@@ -474,15 +474,26 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(course.level, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Spacer(modifier = Modifier.weight(1f))
+                    
                     if (isEnrolled) {
-                        Button(
-                            onClick = { navController.navigate("reels/${course.id}/resume") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("REELVIEW")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = { navController.navigate("reels/${course.id}/resume") },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("REELVIEW")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            // UN-ENROLL BUTTON
+                            IconButton(
+                                onClick = { viewModel.unenrollFromCourse(course.id) },
+                                modifier = Modifier.background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.PersonRemove, null, tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
                 }

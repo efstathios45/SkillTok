@@ -50,51 +50,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _reviews = MutableStateFlow<Map<String, List<CourseReview>>>(emptyMap())
     val reviews: StateFlow<Map<String, List<CourseReview>>> = _reviews.asStateFlow()
 
+    private val _completedLessons = MutableStateFlow<Set<String>>(emptySet())
+    val completedLessons: StateFlow<Set<String>> = _completedLessons.asStateFlow()
+
     private var userDataJob: Job? = null
     private val activeCommentJobs = mutableMapOf<String, Job>()
     private var isSeeding = false
 
     init {
-        loadLocalData()
         loadCourses()
         observeAuthState()
-    }
-
-    private fun loadLocalData() {
-        viewModelScope.launch {
-            db.getAllCourses().collect { locals ->
-                if (locals.isNotEmpty()) {
-                    _courses.value = locals.map { 
-                        Course(
-                            id = it.firebaseId ?: "",
-                            title = it.title,
-                            description = it.description,
-                            thumbnailUrl = it.thumbnailUrl,
-                            subject = it.subject,
-                            level = it.level
-                        ) 
-                    }
-                }
-            }
-        }
     }
 
     private fun loadCourses() {
         viewModelScope.launch {
             repository.getRemoteCourses().collect { remoteCourses ->
                 if (remoteCourses.isNotEmpty()) {
-                    _courses.value = remoteCourses
+                    _courses.value = (remoteCourses + MockData.courses).distinctBy { it.id }
                     remoteCourses.forEach { 
-                        db.insertCourse(
-                            LocalCourseEntity(
-                                firebaseId = it.id,
-                                title = it.title,
-                                description = it.description,
-                                thumbnailUrl = it.thumbnailUrl,
-                                subject = it.subject,
-                                level = it.level
-                            )
-                        ) 
+                        db.insertCourse(LocalCourseEntity(it.id, it.title, it.description, it.thumbnailUrl, it.subject, it.level)) 
                     }
                 } else if (auth.currentUser != null && !isSeeding) {
                     seedDatabase()
@@ -105,31 +79,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun seedDatabase() {
         if (isSeeding) return
-        val user = auth.currentUser ?: return
         isSeeding = true
-        Log.d("MainViewModel", "Syncing Cloud SQL with MockData...")
+        Log.d("MainViewModel", "STARTING PERSISTENT SEED...")
         
         try {
             MockData.courses.forEach { mockCourse ->
-                val newCourseId = repository.addCourse(mockCourse)
-                if (newCourseId != null) {
-                    MockData.modules.filter { it.courseId == mockCourse.id }.forEach { mockModule ->
-                        val newModuleId = repository.addModule(mockModule.copy(courseId = newCourseId))
-                        if (newModuleId != null) {
-                            MockData.lessons.filter { it.moduleId == mockModule.id }.forEach { mockLesson ->
-                                val newLessonId = repository.addLesson(mockLesson.copy(moduleId = newModuleId, courseId = newCourseId))
-                                if (newLessonId != null) {
-                                    repository.addReel(mockLesson.copy(courseId = newCourseId), newLessonId)
-                                }
-                            }
-                        }
+                repository.addCourse(mockCourse)
+                MockData.modules.filter { it.courseId == mockCourse.id }.forEach { mockModule ->
+                    repository.addModule(mockModule)
+                    MockData.lessons.filter { it.moduleId == mockModule.id }.forEach { mockLesson ->
+                        repository.addLesson(mockLesson)
                     }
                 }
             }
-            Log.d("MainViewModel", "Cloud Seeding Finished Successfully")
-            repository.getRemoteCourses().collect { if (it.isNotEmpty()) _courses.value = it }
+            Log.d("MainViewModel", "Persistent Seed Finished")
         } catch (e: Exception) {
-            Log.e("MainViewModel", "Cloud Seed Failed: ${e.message}")
+            Log.e("MainViewModel", "Seed Failed: ${e.message}")
         } finally {
             isSeeding = false
         }
@@ -140,7 +105,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             auth.authStateFlow().collect { firebaseUser ->
                 if (firebaseUser != null) {
                     loadUserData(firebaseUser.uid)
-                    loadCourses()
                 } else {
                     clearUserData()
                 }
@@ -158,6 +122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _savedVideos.value = emptySet()
         _comments.value = emptyMap()
         _reviews.value = emptyMap()
+        _completedLessons.value = emptySet()
     }
 
     private fun loadUserData(uid: String) {
@@ -176,14 +141,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _userProfile.value = remoteUser
                         db.insertUserProfile(LocalUserEntity(id = remoteUser.id, name = remoteUser.name, email = remoteUser.email, xp = remoteUser.xp, streak = remoteUser.streak, level = remoteUser.level))
                     } else {
-                        // If no remote profile, sync current Firebase user to remote
                         auth.currentUser?.let { syncUserToDatabase(it) }
                     }
                 }
             }
-            launch { repository.getEnrollments().collect { _enrollments.value = it } }
-            launch { repository.getUserSaved().collect { _savedVideos.value = it.toSet() } }
-            launch { repository.getUserLikes().collect { _likes.value = it.toSet() } }
+            launch { repository.getEnrollments(uid).collect { _enrollments.value = it } }
+            launch { repository.getUserSaved(uid).collect { _savedVideos.value = it.toSet() } }
+            launch { repository.getUserLikes(uid).collect { _likes.value = it.toSet() } }
+            launch {
+                db.getCompletions(uid).collect { completions ->
+                    _completedLessons.value = completions.map { it.lessonId }.toSet()
+                }
+            }
         }
     }
 
@@ -210,7 +179,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _likes.value += lessonId
                 soundManager.playLikeSound()
             }
-            repository.toggleLike(lessonId, !currentlyLiked)
+            repository.toggleLike(uid, lessonId, !currentlyLiked)
             db.insertInteraction(LocalInteractionEntity("${uid}_$lessonId", uid, lessonId, !currentlyLiked))
         }
     }
@@ -221,12 +190,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             if (currentlySaved) {
                 _savedVideos.value -= lessonId
-                repository.toggleSave(lessonId, false)
+                repository.toggleSave(uid, lessonId, false)
                 db.deleteSaved(uid, lessonId)
             } else {
                 _savedVideos.value += lessonId
                 soundManager.playSaveSound()
-                repository.toggleSave(lessonId, true)
+                repository.toggleSave(uid, lessonId, true)
                 db.insertSaved(LocalSavedEntity("${uid}_$lessonId", uid, lessonId))
             }
         }
@@ -277,16 +246,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> = flow {
-        val initial = MockData.lessons.filter { it.courseId == courseId }
-        emit(initial)
-        
+        // First emit from MockData so UI is instant
+        val localBackup = MockData.lessons.filter { it.courseId == courseId }
+        emit(localBackup)
+
         repository.getModules(courseId).collect { mods ->
             if (mods.isNotEmpty()) {
                 val allLessons = mutableListOf<Lesson>()
                 for (mod in mods) {
                     repository.getLessons(mod.id).collect { lessons ->
                         allLessons.addAll(lessons)
-                        if (allLessons.isNotEmpty()) emit(allLessons.toList())
+                        if (allLessons.isNotEmpty()) emit(allLessons.toList().distinctBy { it.id })
                     }
                 }
             }
@@ -305,9 +275,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _enrollmentState.value = EnrollmentState.Loading
             try {
-                repository.enrollInCourse(courseId)
+                repository.enrollInCourse(uid, courseId)
                 db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
-                _enrollments.value += Enrollment(courseId = courseId)
+                _enrollments.value += Enrollment(userId = uid, courseId = courseId)
                 soundManager.playEnrollSound()
                 _enrollmentState.value = EnrollmentState.Success(courseId)
             } catch (e: Exception) {
@@ -316,40 +286,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun unenrollFromCourse(courseId: String) {
+        val uid = auth.currentUser?.uid ?: return
+        viewModelScope.launch {
+            try {
+                repository.unenrollFromCourse(uid, courseId)
+                db.deleteEnrollment(uid, courseId)
+                _enrollments.value = _enrollments.value.filter { it.courseId != courseId }
+                _enrollmentState.value = EnrollmentState.Idle
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Unenroll failed: ${e.message}")
+            }
+        }
+    }
+
     fun isEnrolled(courseId: String): Boolean = _enrollments.value.any { it.courseId == courseId }
 
     fun completeLesson(lessonId: String) {
         val uid = auth.currentUser?.uid ?: return
+        val profile = _userProfile.value ?: return
+        if (_completedLessons.value.contains(lessonId)) return 
+
         viewModelScope.launch {
-            repository.completeLesson(lessonId)
+            val courseId = MockData.lessons.find { it.id == lessonId }?.courseId ?: ""
+            repository.completeLesson(uid, courseId, lessonId)
             db.insertCompletion(LocalCompletionEntity(userId = uid, lessonId = lessonId, completedAt = System.currentTimeMillis().toString()))
+            
+            val updatedUser = profile.copy(xp = profile.xp + 25)
+            _userProfile.value = updatedUser
+            repository.updateUserProfile(updatedUser)
+            db.insertUserProfile(LocalUserEntity(id = profile.id, name = profile.name, email = profile.email, xp = updatedUser.xp, streak = profile.streak, level = profile.level))
+            
+            _completedLessons.value += lessonId
         }
     }
 
     fun createCourse(title: String, description: String, subject: String, level: String, modules: List<ModuleData>) {
         val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
-            val courseId = repository.addCourse(Course(title = title, description = description, subject = subject, level = level, createdByUserId = uid))
-            if (courseId != null) {
-                modules.forEachIndexed { mIdx, mData ->
-                    val moduleId = repository.addModule(Module(courseId = courseId, title = mData.title, orderIndex = mIdx))
-                    if (moduleId != null) {
-                        mData.lessons.forEachIndexed { lIdx, lData ->
-                            val lesson = Lesson(moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video", type = "reel")
-                            val newLessonId = repository.addLesson(lesson)
-                            if (newLessonId != null) {
-                                repository.addReel(lesson, newLessonId)
-                            }
-                        }
-                    }
+            val courseId = UUID.randomUUID().toString()
+            val newCourse = Course(id = courseId, title = title, description = description, subject = subject, level = level, createdByUserId = uid)
+            repository.addCourse(newCourse)
+            
+            modules.forEachIndexed { mIdx, mData ->
+                val moduleId = UUID.randomUUID().toString()
+                repository.addModule(Module(id = moduleId, courseId = courseId, title = mData.title, orderIndex = mIdx))
+                mData.lessons.forEachIndexed { lIdx, lData ->
+                    repository.addLesson(Lesson(id = UUID.randomUUID().toString(), moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video", type = "reel"))
                 }
-                loadCourses()
             }
+            loadCourses()
         }
     }
-
-    fun loadReviews(courseId: String) {}
-    fun addReview(review: CourseReview) {}
 
     fun logout() {
         auth.signOut()

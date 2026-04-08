@@ -1,14 +1,19 @@
 package com.skilltok.app
 
 import android.util.Log
-import com.skilltok.app.dataconnect.*
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ktx.toObject
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.tasks.await
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 class FirebaseRepository {
-    private val connector = SkilltokConnectorConnector.instance
+    private val db = FirebaseFirestore.getInstance()
 
     companion object {
         val idMap = ConcurrentHashMap<String, String>()
@@ -16,15 +21,6 @@ class FirebaseRepository {
         fun registerMapping(remoteId: String, mockId: String) { 
             idMap[remoteId.lowercase()] = mockId 
         }
-    }
-
-    private fun String.toUUID(): UUID? {
-        return try {
-            val clean = replace("-", "")
-            if (clean.length == 32) {
-                UUID.fromString(StringBuilder(clean).insert(20, "-").insert(16, "-").insert(12, "-").insert(8, "-").toString())
-            } else { UUID.fromString(this) }
-        } catch (e: Exception) { null }
     }
 
     private fun extractYoutubeId(url: String): String {
@@ -45,231 +41,203 @@ class FirebaseRepository {
         return ""
     }
 
-    // --- Social Interactions with Foreign Key Safety ---
-    private suspend fun ensureReelExists(lessonId: UUID, lessonContext: Lesson? = null) {
+    // --- Social Interactions ---
+    suspend fun toggleLike(userId: String, lessonId: String, isLiked: Boolean) {
         try {
-            val mockId = getMockId(lessonId.toString())
-            val lesson = lessonContext ?: MockData.lessons.find { it.id == mockId } ?: return
-            val videoId = extractYoutubeId(lesson.videoUrl)
-            if (videoId.isEmpty()) return
+            val docRef = db.collection("likes").document("${userId}_${lessonId}")
+            val lessonRef = db.collection("lessons").document(lessonId)
             
-            val remoteCourseId = idMap.entries.find { it.value == lesson.courseId }?.key
-            
-            connector.createReel.execute(
-                id = lessonId,
-                title = lesson.title,
-                description = lesson.description,
-                videoUrl = videoId
-            ) {
-                courseId = remoteCourseId?.toUUID()
+            if (isLiked) {
+                val data = mapOf("userId" to userId, "lessonId" to lessonId, "createdAt" to System.currentTimeMillis())
+                docRef.set(data).await()
+                lessonRef.update("likeCount", FieldValue.increment(1)).await()
+            } else {
+                docRef.delete().await()
+                lessonRef.update("likeCount", FieldValue.increment(-1)).await()
             }
-        } catch (e: Exception) {
-            if (e.message?.contains("already exists", ignoreCase = true) == false) {
-                Log.e("FirebaseRepository", "Reel registration failed: ${e.message}")
-            }
+        } catch (e: Exception) { 
+            Log.e("FirebaseRepository", "Like failed", e)
+            // If update fails because field doesn't exist, create it
+            if (isLiked) db.collection("lessons").document(lessonId).update("likeCount", 1)
         }
     }
 
-    suspend fun toggleLike(lessonId: String, isLiked: Boolean) {
+    suspend fun toggleSave(userId: String, lessonId: String, isSaved: Boolean) {
         try {
-            val remoteId = idMap.entries.find { it.value == lessonId }?.key ?: lessonId
-            val uuid = remoteId.toUUID() ?: return
-            ensureReelExists(uuid)
-            if (isLiked) connector.toggleLike.execute(reelId = uuid)
-            else connector.deleteLike.execute(reelId = uuid)
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Like failed", e) }
-    }
-
-    suspend fun toggleSave(lessonId: String, isSaved: Boolean) {
-        try {
-            val remoteId = idMap.entries.find { it.value == lessonId }?.key ?: lessonId
-            val uuid = remoteId.toUUID() ?: return
-            ensureReelExists(uuid)
-            if (isSaved) connector.toggleSave.execute(reelId = uuid)
-            else connector.deleteSave.execute(reelId = uuid)
+            val docRef = db.collection("saved_content").document("${userId}_${lessonId}")
+            if (isSaved) {
+                val data = mapOf("userId" to userId, "lessonId" to lessonId, "createdAt" to System.currentTimeMillis())
+                docRef.set(data).await()
+            } else {
+                docRef.delete().await()
+            }
         } catch (e: Exception) { Log.e("FirebaseRepository", "Save failed", e) }
     }
 
     suspend fun addComment(comment: ReelComment) {
         try {
-            val remoteId = idMap.entries.find { it.value == comment.lessonId }?.key ?: comment.lessonId
-            val uuid = remoteId.toUUID() ?: return
-            ensureReelExists(uuid)
-            connector.addComment.execute(text = comment.text) {
-                reelId = uuid
-                courseId = null
-            }
+            db.collection("comments").document(comment.id).set(comment).await()
         } catch (e: Exception) { Log.e("FirebaseRepository", "Comment failed", e) }
     }
 
-    // --- Data Fetching ---
-    fun getRemoteCourses(): Flow<List<Course>> = flow {
-        try {
-            val result = connector.listCourses.execute()
-            val remote = result.data.courses.map { remoteCourse ->
-                val mockMatch = MockData.courses.find { it.title == remoteCourse.title }
-                if (mockMatch != null) registerMapping(remoteCourse.id.toString(), mockMatch.id)
-                Course(
-                    id = remoteCourse.id.toString(),
-                    title = remoteCourse.title,
-                    description = remoteCourse.description.ifBlank { mockMatch?.description ?: "" },
-                    thumbnailUrl = remoteCourse.thumbnailUrl.ifBlank { mockMatch?.thumbnailUrl ?: "" },
-                    subject = remoteCourse.subject,
-                    level = remoteCourse.level,
-                    createdAt = remoteCourse.createdAt.toString()
-                )
+    fun getComments(lessonId: String): Flow<List<ReelComment>> = callbackFlow {
+        val subscription = db.collection("comments")
+            .whereEqualTo("lessonId", lessonId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val comments = snapshot?.documents?.mapNotNull { it.toObject<ReelComment>() } ?: emptyList()
+                trySend(comments.sortedByDescending { it.createdAt })
             }
-            if (remote.isNotEmpty()) emit(remote)
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Cloud Fetch Failed", e) }
+        awaitClose { subscription.remove() }
+    }
+
+    // --- Course Data ---
+    fun getRemoteCourses(): Flow<List<Course>> = callbackFlow {
+        val subscription = db.collection("courses")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val courses = snapshot?.documents?.mapNotNull { doc ->
+                    doc.toObject<Course>()?.copy(id = doc.id)
+                } ?: emptyList()
+                trySend(courses)
+            }
+        awaitClose { subscription.remove() }
     }
 
     fun getModules(courseId: String): Flow<List<Module>> = flow {
-        emit(MockData.modules.filter { it.courseId == getMockId(courseId) })
+        try {
+            val snapshot = db.collection("modules").whereEqualTo("courseId", courseId).get().await()
+            val modules = snapshot.documents.mapNotNull { it.toObject<Module>()?.copy(id = it.id) }
+            emit(modules.sortedBy { it.orderIndex })
+        } catch (e: Exception) {
+            emit(emptyList<Module>())
+        }
     }
 
     fun getLessons(moduleId: String): Flow<List<Lesson>> = flow {
-        emit(MockData.lessons.filter { it.moduleId == getMockId(moduleId) })
-    }
-
-    fun getComments(lessonId: String): Flow<List<ReelComment>> = flow {
         try {
-            val remoteId = idMap.entries.find { it.value == lessonId }?.key ?: lessonId
-            val uuid = remoteId.toUUID() ?: return@flow
-            val result = connector.getComments.execute(reelId = uuid)
-            emit(result.data.comments.map {
-                ReelComment(it.id.toString(), lessonId, it.user.id, it.user.displayName, it.text, it.createdAt.seconds * 1000)
-            })
-        } catch (e: Exception) { 
-            Log.w("FirebaseRepository", "Failed to get comments", e)
-            emit(emptyList()) 
+            val snapshot = db.collection("lessons").whereEqualTo("moduleId", moduleId).get().await()
+            val lessons = snapshot.documents.mapNotNull { it.toObject<Lesson>()?.copy(id = it.id) }
+            emit(lessons.sortedBy { it.orderIndex })
+        } catch (e: Exception) {
+            emit(emptyList<Lesson>())
         }
     }
 
-    // --- Content Seeding ---
-    suspend fun addCourse(course: Course): String? {
-        return try {
-            val result = connector.createCourse.execute(
-                title = course.title,
-                description = course.description,
-                thumbnailUrl = course.thumbnailUrl,
-                subject = course.subject,
-                level = course.level
-            ) { id = null }
-            val remoteId = result.data.course_insert.id.toString()
-            registerMapping(remoteId, course.id)
-            remoteId
-        } catch (e: Exception) { 
-            Log.e("FirebaseRepository", "Add course failed", e)
-            null 
-        }
-    }
-
-    suspend fun addModule(module: Module): String? {
-        return try {
-            val courseUuid = module.courseId.toUUID() ?: return null
-            val result = connector.createModule.execute(
-                courseId = courseUuid,
-                title = module.title,
-                orderIndex = module.orderIndex
-            ) { id = null }
-            val remoteId = result.data.module_insert.id.toString()
-            registerMapping(remoteId, module.id)
-            remoteId
-        } catch (e: Exception) { 
-            Log.e("FirebaseRepository", "Add module failed", e)
-            null 
-        }
-    }
-
-    suspend fun addLesson(lesson: Lesson): String? {
-        return try {
-            val moduleUuid = lesson.moduleId.toUUID() ?: return null
-            val videoId = extractYoutubeId(lesson.videoUrl)
-            val result = connector.createLesson.execute(
-                moduleId = moduleUuid,
-                title = lesson.title,
-                description = lesson.description,
-                lessonType = lesson.lessonType,
-                orderIndex = lesson.orderIndex,
-                contentUrl = if (videoId.isNotEmpty()) videoId else lesson.videoUrl
-            ) { id = null }
-            val remoteId = result.data.lesson_insert.id.toString()
-            registerMapping(remoteId, lesson.id)
-            remoteId
-        } catch (e: Exception) { 
-            Log.e("FirebaseRepository", "Add lesson failed", e)
-            null 
-        }
-    }
-
-    suspend fun addReel(lesson: Lesson, remoteLessonId: String) {
-        val uuid = remoteLessonId.toUUID() ?: return
-        ensureReelExists(uuid, lesson)
-    }
-
-    suspend fun completeLesson(lessonId: String) {
+    // --- Enrollment ---
+    suspend fun enrollInCourse(userId: String, courseId: String) {
         try {
-            val remoteId = idMap.entries.find { it.value == lessonId }?.key ?: lessonId
-            val uuid = remoteId.toUUID() ?: return
-            val mockLesson = MockData.lessons.find { it.id == getMockId(remoteId) }
-            val remoteCourseId = idMap.entries.find { it.value == mockLesson?.courseId }?.key ?: return
-            val courseUuid = remoteCourseId.toUUID() ?: return
-            connector.updateProgress.execute(courseId = courseUuid, lessonId = uuid, isCompleted = true)
-        } catch (e: Exception) { Log.e("FirebaseRepository", "Complete lesson failed", e) }
-    }
-
-    suspend fun enrollInCourse(courseId: String) {
-        try {
-            val remoteId = idMap.entries.find { it.value == courseId }?.key ?: courseId
-            val courseUuid = remoteId.toUUID() ?: return
-            connector.enrollInCourse.execute(courseId = courseUuid)
+            val now = System.currentTimeMillis().toString()
+            val data = mapOf(
+                "userId" to userId,
+                "courseId" to courseId,
+                "enrolledAt" to now,
+                "startedAt" to now,
+                "status" to "in_progress",
+                "progressPercent" to 0
+            )
+            db.collection("enrollments").document("${userId}_${courseId}").set(data).await()
         } catch (e: Exception) { Log.e("FirebaseRepository", "Enroll failed", e) }
     }
 
-    fun getEnrollments(): Flow<List<Enrollment>> = flow {
+    suspend fun unenrollFromCourse(userId: String, courseId: String) {
         try {
-            val result = connector.getEnrollments.execute()
-            emit(result.data.enrollments.map { Enrollment(courseId = getMockId(it.courseId.toString())) })
-        } catch (e: Exception) { 
-            Log.w("FirebaseRepository", "Get enrollments failed", e)
-            emit(emptyList()) 
-        }
+            db.collection("enrollments").document("${userId}_${courseId}").delete().await()
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Unenroll failed", e) }
     }
 
-    fun getUserLikes(): Flow<List<String>> = flow {
-        try {
-            val result = connector.getUserLikes.execute()
-            emit(result.data.likes.map { getMockId(it.reelId.toString()) })
-        } catch (e: Exception) { 
-            Log.w("FirebaseRepository", "Get likes failed", e)
-            emit(emptyList()) 
-        }
+    fun getEnrollments(userId: String): Flow<List<Enrollment>> = callbackFlow {
+        val subscription = db.collection("enrollments")
+            .whereEqualTo("userId", userId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val enrollments = snapshot?.documents?.mapNotNull { it.toObject<Enrollment>() } ?: emptyList()
+                trySend(enrollments)
+            }
+        awaitClose { subscription.remove() }
     }
 
-    fun getUserSaved(): Flow<List<String>> = flow {
-        try {
-            val result = connector.getUserSaved.execute()
-            emit(result.data.savedContents.map { getMockId(it.reelId.toString()) })
-        } catch (e: Exception) { 
-            Log.w("FirebaseRepository", "Get saved failed", e)
-            emit(emptyList()) 
-        }
-    }
-
-    fun getUserProfile(uid: String): Flow<User?> = flow {
-        try {
-            val result = connector.getUserProfile.execute(id = uid)
-            val data = result.data.user
-            if (data != null) emit(User(id = data.id, name = data.displayName, email = data.email, photoUrl = data.photoUrl, bio = data.bio, role = data.role))
-        } catch (e: Exception) { 
-            Log.e("FirebaseRepository", "Get profile failed", e)
-            emit(null) 
-        }
+    // --- User Profile ---
+    fun getUserProfile(uid: String): Flow<User?> = callbackFlow {
+        val subscription = db.collection("users").document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                trySend(snapshot?.toObject<User>())
+            }
+        awaitClose { subscription.remove() }
     }
 
     suspend fun updateUserProfile(user: User) {
         try {
-            connector.upsertUser.execute(displayName = user.name, email = user.email, photoUrl = user.photoUrl ?: "")
+            db.collection("users").document(user.id).set(user).await()
         } catch (e: Exception) { Log.e("FirebaseRepository", "Update profile failed", e) }
+    }
+
+    // --- User Interaction Lists ---
+    fun getUserLikes(userId: String): Flow<List<String>> = callbackFlow {
+        val subscription = db.collection("likes")
+            .whereEqualTo("userId", userId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.getString("lessonId") } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    fun getUserSaved(userId: String): Flow<List<String>> = callbackFlow {
+        val subscription = db.collection("saved_content")
+            .whereEqualTo("userId", userId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.getString("lessonId") } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    // --- Content Management ---
+    suspend fun addCourse(course: Course): String? {
+        return try {
+            db.collection("courses").document(course.id).set(course).await()
+            course.id
+        } catch (e: Exception) { null }
+    }
+
+    suspend fun addModule(module: Module): String? {
+        return try {
+            db.collection("modules").document(module.id).set(module).await()
+            module.id
+        } catch (e: Exception) { null }
+    }
+
+    suspend fun addLesson(lesson: Lesson): String? {
+        return try {
+            db.collection("lessons").document(lesson.id).set(lesson).await()
+            lesson.id
+        } catch (e: Exception) { null }
+    }
+
+    suspend fun completeLesson(userId: String, courseId: String, lessonId: String) {
+        try {
+            val data = mapOf(
+                "userId" to userId,
+                "courseId" to courseId,
+                "lessonId" to lessonId,
+                "isCompleted" to true,
+                "completedAt" to System.currentTimeMillis().toString()
+            )
+            db.collection("progress").document("${userId}_${lessonId}").set(data).await()
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Complete lesson failed", e) }
     }
 }

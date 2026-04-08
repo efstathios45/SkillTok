@@ -59,11 +59,24 @@ import kotlinx.coroutines.launch
 fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewModel: MainViewModel) {
     val context = LocalContext.current
     val courses by viewModel.courses.collectAsState()
-    val lesson = MockData.lessons.find { it.id == lessonId }
-    val course = courses.find { it.id == lesson?.courseId }
-    val mod = MockData.modules.find { it.id == lesson?.moduleId }
     
-    if (lesson == null || course == null) return
+    // Robust lookup for lesson and course
+    val lesson = remember(lessonId) { 
+        MockData.lessons.find { it.id == lessonId || FirebaseRepository.getMockId(it.id) == lessonId }
+    }
+    val course = remember(lesson, courses) {
+        courses.find { it.id == lesson?.courseId || FirebaseRepository.getMockId(it.id) == lesson?.courseId }
+    }
+    val mod = remember(lesson) {
+        MockData.modules.find { it.id == lesson?.moduleId || FirebaseRepository.getMockId(it.id) == lesson?.moduleId }
+    }
+    
+    if (lesson == null || course == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -128,18 +141,23 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                 
                 Spacer(modifier = Modifier.height(40.dp))
                 
+                val isCompleted by viewModel.completedLessons.collectAsState()
+                val isAlreadyDone = isCompleted.contains(lesson.id)
+
                 Button(
                     onClick = { 
                         viewModel.completeLesson(lesson.id)
-                        Toast.makeText(context, "Great! +25 XP", Toast.LENGTH_SHORT).show()
+                        if (!isAlreadyDone) Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isAlreadyDone) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
+                    )
                 ) {
-                    Icon(Icons.Default.CheckCircle, null)
+                    Icon(if (isAlreadyDone) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked, null)
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("Complete Lesson", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(if (isAlreadyDone) "Completed" else "Mark as Complete", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 
                 if (lesson.hasQuiz) {
@@ -162,7 +180,6 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: NavHostController, viewModel: MainViewModel) {
     val courses by viewModel.courses.collectAsState()
     
-    // Resolve course with mapping check to avoid blank screen
     val course = remember(courses, courseId) {
         courses.find { it.id == courseId || FirebaseRepository.getMockId(it.id) == courseId }
     }
@@ -170,14 +187,12 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
     val lessonsFlow = remember(courseId) { viewModel.getModuleLessonsForReels(courseId) }
     val lessons by lessonsFlow.collectAsState(initial = emptyList())
     
-    // Persistent background and back button to avoid "stuck" blank screen
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (course == null || lessons.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color.White)
             }
         } else {
-            // Resolve start index
             val initialPage = remember(lessons, startLessonId) {
                 if (startLessonId == null || startLessonId == "resume" || startLessonId == "first") {
                     0
@@ -189,7 +204,6 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
             
             val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { lessons.size })
 
-            // Ensure we jump to the correct page if it wasn't resolved on first composition
             LaunchedEffect(initialPage) {
                 if (initialPage != pagerState.currentPage) {
                     pagerState.scrollToPage(initialPage)
@@ -218,7 +232,6 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
                 }
             }
 
-            // Lesson Progress Header
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -255,7 +268,6 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
             }
         }
 
-        // Always show back button even during loading if data is taking time
         if (course == null || lessons.isEmpty()) {
             IconButton(
                 onClick = { navController.popBackStack() },
@@ -290,7 +302,7 @@ fun ReelItem(
     
     var showHeartAnim by remember { mutableStateOf(false) }
     var isManuallyPaused by remember { mutableStateOf(false) }
-    var seekTrigger by remember { mutableLongStateOf(0L) } // Timestamp to trigger seek
+    var seekTrigger by remember { mutableLongStateOf(0L) }
     var seekAmount by remember { mutableIntStateOf(0) }
     
     val enrollments by viewModel.enrollments.collectAsState()
@@ -320,7 +332,6 @@ fun ReelItem(
                         seekAmount = if (isRightSide) 10 else -10
                         seekTrigger = System.currentTimeMillis()
                         
-                        // Like logic
                         if (!isLiked) {
                             viewModel.toggleLike(lesson.id)
                             soundManager.playLikeSound()
@@ -370,7 +381,6 @@ fun ReelItem(
             }
         }
 
-        // Professional UI Overlay Gradients
         Box(modifier = Modifier.fillMaxSize().background(
             Brush.verticalGradient(
                 0.55f to Color.Transparent,
@@ -421,20 +431,25 @@ fun ReelItem(
             
             Spacer(modifier = Modifier.height(24.dp))
             
+            val isCompleted by viewModel.completedLessons.collectAsState()
+            val isAlreadyDone = isCompleted.contains(lesson.id)
+
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = { 
                         viewModel.completeLesson(lesson.id)
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
+                        if (!isAlreadyDone) Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.weight(1f).height(52.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isAlreadyDone) Color(0xFF10B981) else AppColors.Primary
+                    ),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(20.dp))
+                    Icon(if (isAlreadyDone) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked, null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Complete", fontWeight = FontWeight.Bold)
+                    Text(if (isAlreadyDone) "Completed" else "Complete", fontWeight = FontWeight.Bold)
                 }
                 
                 if (lesson.hasQuiz) {
@@ -452,7 +467,6 @@ fun ReelItem(
             }
         }
 
-        // Interaction Sidebar
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -506,7 +520,6 @@ fun ReelItem(
                 }
             )
             
-            // Rotating Course Icon
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -766,7 +779,6 @@ fun YouTubePlayer(
 
         if (isPlaying) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                // Mute button only for deep dives (reels have it in sidebar)
                 if (!isReel) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         IconButton(
@@ -780,7 +792,6 @@ fun YouTubePlayer(
                     Spacer(modifier = Modifier.height(1.dp))
                 }
 
-                // Skip buttons only for deep dives
                 if (!isReel) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { webView.evaluateJavascript("seek(-10)", null) }, modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)) {
@@ -796,7 +807,6 @@ fun YouTubePlayer(
                 Spacer(modifier = Modifier.height(120.dp))
             }
 
-            // Progress Bar at the very bottom
             LinearProgressIndicator(
                 progress = { videoProgress },
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp),

@@ -1,5 +1,7 @@
 package com.skilltok.app
 
+import com.google.firebase.firestore.PropertyName
+
 data class User(
     val id: String = "",
     val name: String = "",
@@ -26,7 +28,8 @@ data class Course(
     val thumbnailUrl: String = "",
     val rating: Double = 4.5,
     val learnersCount: Int = 0,
-    val isPublished: Boolean = false,
+    @get:PropertyName("isPublished") @set:PropertyName("isPublished")
+    var isPublished: Boolean = false,
     val source: String = "user", // "user" or "ai"
     val generationStatus: String? = null,
     val originalPrompt: String? = null,
@@ -56,7 +59,8 @@ data class Lesson(
     val hasQuiz: Boolean = false,
     val contentUrl: String = "",
     val resourceUrl: String? = null,
-    val quizData: String? = null
+    val quizData: String? = null,
+    val likeCount: Int = 0
 )
 
 data class QuizQuestion(

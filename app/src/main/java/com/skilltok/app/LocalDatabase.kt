@@ -1,11 +1,13 @@
 package com.skilltok.app
 
 import android.content.Context
+import android.util.Log
 import androidx.room.*
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import net.zetetic.database.sqlcipher.SQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+import java.io.File
 
 @Entity(tableName = "local_user_profile")
 data class LocalUserEntity(
@@ -20,8 +22,7 @@ data class LocalUserEntity(
 
 @Entity(tableName = "local_courses")
 data class LocalCourseEntity(
-    @PrimaryKey(autoGenerate = true) val localId: Int = 0,
-    val firebaseId: String? = null, // Business Bridge
+    @PrimaryKey val id: String, // Use stable ID (Firebase or Mock)
     val title: String,
     val description: String,
     val thumbnailUrl: String,
@@ -100,6 +101,9 @@ interface SkillTokDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEnrollment(enrollment: LocalEnrollmentEntity)
 
+    @Query("DELETE FROM local_enrollments WHERE userId = :uid AND courseId = :courseId")
+    suspend fun deleteEnrollment(uid: String, courseId: String)
+
     @Query("SELECT * FROM local_lesson_completions WHERE userId = :uid")
     fun getCompletions(uid: String): Flow<List<LocalCompletionEntity>>
 
@@ -130,26 +134,44 @@ interface SkillTokDao {
 
 @Database(
     entities = [LocalUserEntity::class, LocalCourseEntity::class, LocalEnrollmentEntity::class, LocalCompletionEntity::class, LocalInteractionEntity::class, LocalCommentEntity::class, LocalSavedEntity::class], 
-    version = 5, // Upgraded version for schema change
+    version = 7, // Bumping version for DAO change
     exportSchema = false
 )
 abstract class SkillTokDatabase : RoomDatabase() {
     abstract fun dao(): SkillTokDao
 
     companion object {
+        private const val DB_NAME = "skilltok_local_db"
         @Volatile
         private var INSTANCE: SkillTokDatabase? = null
 
         fun getDatabase(context: Context): SkillTokDatabase {
             return INSTANCE ?: synchronized(this) {
                 System.loadLibrary("sqlcipher")
-                val passphrase = "secure_skilltok_passphrase".toByteArray()
-                val factory = SupportOpenHelperFactory(passphrase)
+                
+                val passphrase = SecurityUtils.getDatabasePassphrase(context)
+                val dbFile = context.getDatabasePath(DB_NAME)
+                if (dbFile.exists()) {
+                    try {
+                        SQLiteDatabase.openDatabase(
+                            dbFile.absolutePath, 
+                            String(passphrase), 
+                            null, 
+                            SQLiteDatabase.OPEN_READONLY,
+                            null,
+                            null
+                        ).close()
+                    } catch (e: Exception) {
+                        Log.e("SkillTokDatabase", "Encryption mismatch or schema change. Wiping local cache to recover.", e)
+                        context.deleteDatabase(DB_NAME)
+                    }
+                }
 
+                val factory = SupportOpenHelperFactory(passphrase)
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     SkillTokDatabase::class.java,
-                    "skilltok_local_db"
+                    DB_NAME
                 ).openHelperFactory(factory)
                 .fallbackToDestructiveMigration()
                 .build()

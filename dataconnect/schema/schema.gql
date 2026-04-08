@@ -9,8 +9,8 @@ type User @table(key: "id") {
   bio: String
   role: String! @default(value: "learner")
   onboardingCompleted: Boolean! @default(value: false)
-  interests: [String!]
-  goals: [String!]
+  interests: [String!]! @default(value: [])
+  goals: [String!]! @default(value: [])
   createdAt: Timestamp! @default(expr: "request.time")
 }
 

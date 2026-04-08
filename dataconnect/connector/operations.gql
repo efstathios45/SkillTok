@@ -1,7 +1,15 @@
 # Operations for SkillTok PostgreSQL Database
 
 # --- User Mutations ---
-mutation UpsertUser($displayName: String!, $email: String!, $photoUrl: String!, $onboardingCompleted: Boolean, $interests: [String!], $goals: [String!]) @auth(level: USER) {
+mutation UpsertUser(
+  $displayName: String!,
+  $email: String!,
+  $photoUrl: String!,
+  $onboardingCompleted: Boolean!,
+  $interests: [String!]!,
+  $goals: [String!]!,
+  $role: String!
+) @auth(level: USER, insecureReason: "Users manage their own profile") {
   user_upsert(data: {
     id_expr: "auth.uid",
     displayName: $displayName,
@@ -9,11 +17,12 @@ mutation UpsertUser($displayName: String!, $email: String!, $photoUrl: String!, 
     photoUrl: $photoUrl,
     onboardingCompleted: $onboardingCompleted,
     interests: $interests,
-    goals: $goals
+    goals: $goals,
+    role: $role
   })
 }
 
-query GetUserProfile($id: String!) @auth(level: USER) {
+query GetUserProfile($id: String!) @auth(level: USER, insecureReason: "Profiles are accessible") {
   user(id: $id) {
     id
     displayName
@@ -28,7 +37,7 @@ query GetUserProfile($id: String!) @auth(level: USER) {
 }
 
 # --- Course Queries ---
-query ListCourses @auth(level: PUBLIC, insecureReason: "Courses are public content") {
+query ListCourses @auth(level: PUBLIC, insecureReason: "Public discovery") {
   courses(where: { isPublished: { eq: true } }) {
     id
     title
@@ -43,63 +52,49 @@ query ListCourses @auth(level: PUBLIC, insecureReason: "Courses are public conte
   }
 }
 
-query GetModules($courseId: UUID!) @auth(level: PUBLIC, insecureReason: "Modules are public") {
-  modules(where: { courseId: { eq: $courseId } }, orderBy: [{ orderIndex: ASC }]) {
+query GetCourse($id: UUID!) @auth(level: PUBLIC, insecureReason: "Course details are public") {
+  course(id: $id) {
     id
     title
     description
-    orderIndex
+    thumbnailUrl
+    subject
+    level
   }
 }
 
-query GetLessons($moduleId: UUID!) @auth(level: PUBLIC, insecureReason: "Lessons are public") {
-  lessons(where: { moduleId: { eq: $moduleId } }, orderBy: [{ orderIndex: ASC }]) {
-    id
-    title
-    description
-    lessonType
-    orderIndex
-    contentUrl
+# --- Enrollment & Progress ---
+mutation EnrollInCourse($courseId: UUID!) @auth(level: USER) {
+  enrollment_upsert(data: { userId_expr: "auth.uid", courseId: $courseId })
+}
+
+mutation DeleteEnrollment($courseId: UUID!) @auth(level: USER, insecureReason: "Users can unenroll") {
+  enrollment_delete(key: { userId_expr: "auth.uid", courseId: $courseId })
+}
+
+query GetEnrollments @auth(level: USER) {
+  enrollments(where: { userId: { eq_expr: "auth.uid" } }) {
+    courseId
   }
 }
 
-# --- Course Mutations ---
-mutation CreateCourse($id: UUID, $title: String!, $description: String!, $thumbnailUrl: String!, $subject: String!, $level: String!) @auth(level: USER) {
-  course_insert(data: {
-    id: $id,
-    ownerId_expr: "auth.uid",
-    title: $title,
-    description: $description,
-    thumbnailUrl: $thumbnailUrl,
-    subject: $subject,
-    level: $level,
-    isPublished: true
-  })
+# --- Instructor Analytics ---
+query GetCourseAnalytics($courseId: UUID!) @auth(level: USER, insecureReason: "Instructors view student data") {
+  enrollments(where: { courseId: { eq: $courseId } }) {
+    user {
+      id
+      displayName
+      email
+    }
+  }
+  progresses(where: { courseId: { eq: $courseId } }) {
+    userId
+    isCompleted
+  }
 }
 
-mutation CreateModule($id: UUID, $courseId: UUID!, $title: String!, $orderIndex: Int!) @auth(level: USER) {
-  module_insert(data: {
-    id: $id,
-    courseId: $courseId,
-    title: $title,
-    orderIndex: $orderIndex
-  })
-}
-
-mutation CreateLesson($id: UUID, $moduleId: UUID!, $title: String!, $description: String!, $lessonType: String!, $orderIndex: Int!, $contentUrl: String!) @auth(level: USER) {
-  lesson_insert(data: {
-    id: $id,
-    moduleId: $moduleId,
-    title: $title,
-    description: $description,
-    lessonType: $lessonType,
-    orderIndex: $orderIndex,
-    contentUrl: $contentUrl
-  })
-}
-
-# --- Social & Discovery (Reels) ---
-query ListReels @auth(level: PUBLIC, insecureReason: "Feed is public") {
+# --- Social Standard ---
+query ListReels @auth(level: PUBLIC) {
   reels(orderBy: [{ createdAt: DESC }]) {
     id
     title
@@ -112,18 +107,6 @@ query ListReels @auth(level: PUBLIC, insecureReason: "Feed is public") {
   }
 }
 
-mutation CreateReel($id: UUID!, $courseId: UUID, $title: String!, $description: String!, $videoUrl: String!) @auth(level: USER) {
-  reel_insert(data: {
-    id: $id,
-    creatorId_expr: "auth.uid",
-    courseId: $courseId,
-    title: $title,
-    description: $description,
-    videoUrl: $videoUrl
-  })
-}
-
-# --- Interactions ---
 mutation ToggleLike($reelId: UUID!) @auth(level: USER) {
   like_upsert(data: { userId_expr: "auth.uid", reelId: $reelId })
 }
@@ -156,17 +139,6 @@ query GetComments($reelId: UUID!) @auth(level: PUBLIC, insecureReason: "Comments
   }
 }
 
-# --- Enrollment & Progress ---
-mutation EnrollInCourse($courseId: UUID!) @auth(level: USER) {
-  enrollment_upsert(data: { userId_expr: "auth.uid", courseId: $courseId })
-}
-
-query GetEnrollments @auth(level: USER) {
-  enrollments(where: { userId: { eq_expr: "auth.uid" } }) {
-    courseId
-  }
-}
-
 mutation UpdateProgress($courseId: UUID!, $lessonId: UUID!, $isCompleted: Boolean!) @auth(level: USER) {
   progress_upsert(data: {
     userId_expr: "auth.uid",
@@ -186,4 +158,39 @@ query GetUserSaved @auth(level: USER) {
   savedContents(where: { userId: { eq_expr: "auth.uid" } }) {
     reelId
   }
+}
+
+# --- Course Creation ---
+mutation CreateCourse($id: UUID, $title: String!, $description: String!, $thumbnailUrl: String!, $subject: String!, $level: String!) @auth(level: USER) {
+  course_insert(data: {
+    id: $id,
+    ownerId_expr: "auth.uid",
+    title: $title,
+    description: $description,
+    thumbnailUrl: $thumbnailUrl,
+    subject: $subject,
+    level: $level,
+    isPublished: true
+  })
+}
+
+mutation CreateModule($id: UUID, $courseId: UUID!, $title: String!, $orderIndex: Int!) @auth(level: USER) {
+  module_insert(data: {
+    id: $id,
+    courseId: $courseId,
+    title: $title,
+    orderIndex: $orderIndex
+  })
+}
+
+mutation CreateLesson($id: UUID, $moduleId: UUID!, $title: String!, $description: String!, $lessonType: String!, $orderIndex: Int!, $contentUrl: String!) @auth(level: USER) {
+  lesson_insert(data: {
+    id: $id,
+    moduleId: $moduleId,
+    title: $title,
+    description: $description,
+    lessonType: $lessonType,
+    orderIndex: $orderIndex,
+    contentUrl: $contentUrl
+  })
 }

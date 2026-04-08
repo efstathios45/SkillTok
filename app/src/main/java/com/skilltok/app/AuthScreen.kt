@@ -1,6 +1,7 @@
 package com.skilltok.app
 
 import android.app.Activity
+import android.util.Log
 import android.util.Patterns
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -69,7 +70,7 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
             fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.onBackground
         )
-        
+
         Text(
             text = if (showVerificationMessage) "Check your inbox for a verification link." else if (isLogin) "Sign in to continue learning" else "Join the community of skill seekers",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -158,12 +159,10 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                                 }
                             } else {
                                 val result = auth.createUserWithEmailAndPassword(email, password).await()
-                                // Set profile name immediately
                                 val profileUpdates = UserProfileChangeRequest.Builder()
                                     .setDisplayName(name)
                                     .build()
                                 result.user?.updateProfile(profileUpdates)?.await()
-                                
                                 result.user?.sendEmailVerification()?.await()
                                 showVerificationMessage = true
                                 Toast.makeText(context, "Verification link sent to $email", Toast.LENGTH_LONG).show()
@@ -185,23 +184,33 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                     Text(if (isLogin) "Sign In" else "Sign Up", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
             
-            Spacer(modifier = Modifier.height(12.dp))
+            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
             
+            Spacer(modifier = Modifier.height(16.dp))
+
             val googleAuthManager = remember { GoogleAuthManager(context) }
             OutlinedButton(
                 onClick = {
                     isLoading = true
                     scope.launch {
-                        val result = googleAuthManager.signIn(context as Activity)
-                        if (result.isSuccess) {
-                            auth.currentUser?.let { viewModel.syncUserToDatabase(it) }
-                            onLoginSuccess()
-                        } else {
-                            val error = result.exceptionOrNull()
-                            Toast.makeText(context, "Login failed: ${error?.message ?: "Cancelled"}", Toast.LENGTH_LONG).show()
+                        try {
+                            val result = googleAuthManager.signIn(context as Activity)
+                            if (result.isSuccess) {
+                                auth.currentUser?.let { viewModel.syncUserToDatabase(it) }
+                                onLoginSuccess()
+                            } else {
+                                val error = result.exceptionOrNull()
+                                Log.e("AuthScreen", "Google Sign In Error", error)
+                                Toast.makeText(context, "Google Sign In failed. Ensure SHA-1 is in Firebase Console.", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        } finally {
+                            isLoading = false
                         }
-                        isLoading = false
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -210,16 +219,12 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
+                    Icon(
+                        imageVector = Icons.Default.AccountCircle, // Placeholder for Google Icon
+                        contentDescription = null,
                         modifier = Modifier.size(24.dp),
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color.White,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Black, fontSize = 16.sp)
-                        }
-                    }
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text("Continue with Google", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                 }

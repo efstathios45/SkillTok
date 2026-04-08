@@ -30,6 +30,8 @@ public interface SkilltokConnectorConnector : com.google.firebase.dataconnect.ge
   
     public val createReel: CreateReelMutation
   
+    public val deleteEnrollment: DeleteEnrollmentMutation
+
     public val deleteLike: DeleteLikeMutation
   
     public val deleteSave: DeleteSaveMutation
@@ -37,6 +39,8 @@ public interface SkilltokConnectorConnector : com.google.firebase.dataconnect.ge
     public val enrollInCourse: EnrollInCourseMutation
   
     public val getComments: GetCommentsQuery
+
+    public val getCourseAnalytics: GetCourseAnalyticsQuery
   
     public val getEnrollments: GetEnrollmentsQuery
   
@@ -125,6 +129,10 @@ private class SkilltokConnectorConnectorImpl(
       CreateReelMutationImpl(this)
     }
   
+    override val deleteEnrollment by lazy(LazyThreadSafetyMode.PUBLICATION) {
+      DeleteEnrollmentMutationImpl(this)
+    }
+
     override val deleteLike by lazy(LazyThreadSafetyMode.PUBLICATION) {
       DeleteLikeMutationImpl(this)
     }
@@ -139,6 +147,10 @@ private class SkilltokConnectorConnectorImpl(
   
     override val getComments by lazy(LazyThreadSafetyMode.PUBLICATION) {
       GetCommentsQueryImpl(this)
+    }
+
+    override val getCourseAnalytics by lazy(LazyThreadSafetyMode.PUBLICATION) {
+      GetCourseAnalyticsQueryImpl(this)
     }
   
     override val getEnrollments by lazy(LazyThreadSafetyMode.PUBLICATION) {
@@ -202,6 +214,7 @@ private class SkilltokConnectorConnectorImpl(
         createLesson,
         createModule,
         createReel,
+        deleteEnrollment,
         deleteLike,
         deleteSave,
         enrollInCourse,
@@ -216,6 +229,7 @@ private class SkilltokConnectorConnectorImpl(
   override fun queries(): List<com.google.firebase.dataconnect.generated.GeneratedQuery<SkilltokConnectorConnector, *, *>> =
     listOf(
       getComments,
+        getCourseAnalytics,
         getEnrollments,
         getLessons,
         getModules,
@@ -433,6 +447,19 @@ private class CreateReelMutationImpl(
     CreateReelMutation.Companion.variablesSerializer,
   )
 
+private class DeleteEnrollmentMutationImpl(
+  connector: SkilltokConnectorConnector
+):
+  DeleteEnrollmentMutation,
+  SkilltokConnectorConnectorGeneratedMutationImpl<
+      DeleteEnrollmentMutation.Data,
+      DeleteEnrollmentMutation.Variables
+  >(
+    connector,
+    DeleteEnrollmentMutation.Companion.operationName,
+    DeleteEnrollmentMutation.Companion.dataDeserializer,
+    DeleteEnrollmentMutation.Companion.variablesSerializer,
+  )
 
 private class DeleteLikeMutationImpl(
   connector: SkilltokConnectorConnector
@@ -491,6 +518,20 @@ private class GetCommentsQueryImpl(
     GetCommentsQuery.Companion.operationName,
     GetCommentsQuery.Companion.dataDeserializer,
     GetCommentsQuery.Companion.variablesSerializer,
+  )
+
+private class GetCourseAnalyticsQueryImpl(
+  connector: SkilltokConnectorConnector
+):
+  GetCourseAnalyticsQuery,
+  SkilltokConnectorConnectorGeneratedQueryImpl<
+      GetCourseAnalyticsQuery.Data,
+      GetCourseAnalyticsQuery.Variables
+  >(
+    connector,
+    GetCourseAnalyticsQuery.Companion.operationName,
+    GetCourseAnalyticsQuery.Companion.dataDeserializer,
+    GetCourseAnalyticsQuery.Companion.variablesSerializer,
   )
 
 
@@ -672,5 +713,3 @@ private class UpsertUserMutationImpl(
     UpsertUserMutation.Companion.dataDeserializer,
     UpsertUserMutation.Companion.variablesSerializer,
   )
-
-
