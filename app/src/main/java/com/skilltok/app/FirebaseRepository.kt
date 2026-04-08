@@ -57,8 +57,9 @@ class FirebaseRepository {
             }
         } catch (e: Exception) { 
             Log.e("FirebaseRepository", "Like failed", e)
-            // If update fails because field doesn't exist, create it
-            if (isLiked) db.collection("lessons").document(lessonId).update("likeCount", 1)
+            if (isLiked) {
+                try { db.collection("lessons").document(lessonId).update("likeCount", 1) } catch(e: Exception) {}
+            }
         }
     }
 
@@ -143,12 +144,14 @@ class FirebaseRepository {
                 "progressPercent" to 0
             )
             db.collection("enrollments").document("${userId}_${courseId}").set(data).await()
+            db.collection("courses").document(courseId).update("learnersCount", FieldValue.increment(1)).await()
         } catch (e: Exception) { Log.e("FirebaseRepository", "Enroll failed", e) }
     }
 
     suspend fun unenrollFromCourse(userId: String, courseId: String) {
         try {
             db.collection("enrollments").document("${userId}_${courseId}").delete().await()
+            db.collection("courses").document(courseId).update("learnersCount", FieldValue.increment(-1)).await()
         } catch (e: Exception) { Log.e("FirebaseRepository", "Unenroll failed", e) }
     }
 
@@ -206,6 +209,24 @@ class FirebaseRepository {
         awaitClose { subscription.remove() }
     }
 
+    // --- Reviews ---
+    suspend fun addReview(review: CourseReview) {
+        try {
+            db.collection("reviews").document(review.id).set(review).await()
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Add review failed", e) }
+    }
+
+    fun getReviews(courseId: String): Flow<List<CourseReview>> = callbackFlow {
+        val subscription = db.collection("reviews")
+            .whereEqualTo("courseId", courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                val reviews = snapshot?.documents?.mapNotNull { it.toObject<CourseReview>() } ?: emptyList()
+                trySend(reviews.sortedByDescending { it.createdAt })
+            }
+        awaitClose { subscription.remove() }
+    }
+
     // --- Content Management ---
     suspend fun addCourse(course: Course): String? {
         return try {
@@ -226,6 +247,12 @@ class FirebaseRepository {
             db.collection("lessons").document(lesson.id).set(lesson).await()
             lesson.id
         } catch (e: Exception) { null }
+    }
+
+    suspend fun addQuizQuestion(question: QuizQuestion) {
+        try {
+            db.collection("quizzes").document(question.id).set(question).await()
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Add quiz failed", e) }
     }
 
     suspend fun completeLesson(userId: String, courseId: String, lessonId: String) {

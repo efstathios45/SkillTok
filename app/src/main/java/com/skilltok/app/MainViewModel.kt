@@ -26,7 +26,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val db = SkillTokDatabase.getDatabase(application).dao()
     private val soundManager = SoundManager(application)
 
-    private val _courses = MutableStateFlow<List<Course>>(MockData.courses)
+    private val _courses = MutableStateFlow<List<Course>>(emptyList())
     val courses: StateFlow<List<Course>> = _courses.asStateFlow()
 
     private val _enrollments = MutableStateFlow<List<Enrollment>>(emptyList())
@@ -55,6 +55,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var userDataJob: Job? = null
     private val activeCommentJobs = mutableMapOf<String, Job>()
+    private val activeReviewJobs = mutableMapOf<String, Job>()
     private var isSeeding = false
 
     init {
@@ -66,7 +67,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.getRemoteCourses().collect { remoteCourses ->
                 if (remoteCourses.isNotEmpty()) {
-                    _courses.value = (remoteCourses + MockData.courses).distinctBy { it.id }
+                    _courses.value = remoteCourses
                     remoteCourses.forEach { 
                         db.insertCourse(LocalCourseEntity(it.id, it.title, it.description, it.thumbnailUrl, it.subject, it.level)) 
                     }
@@ -80,8 +81,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun seedDatabase() {
         if (isSeeding) return
         isSeeding = true
-        Log.d("MainViewModel", "STARTING PERSISTENT SEED...")
-        
         try {
             MockData.courses.forEach { mockCourse ->
                 repository.addCourse(mockCourse)
@@ -92,7 +91,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-            Log.d("MainViewModel", "Persistent Seed Finished")
         } catch (e: Exception) {
             Log.e("MainViewModel", "Seed Failed: ${e.message}")
         } finally {
@@ -116,6 +114,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         userDataJob?.cancel()
         activeCommentJobs.values.forEach { it.cancel() }
         activeCommentJobs.clear()
+        activeReviewJobs.values.forEach { it.cancel() }
+        activeReviewJobs.clear()
         _userProfile.value = null
         _enrollments.value = emptyList()
         _likes.value = emptySet()
@@ -228,6 +228,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun addReview(courseId: String, rating: Int, comment: String) {
+        val user = _userProfile.value ?: return
+        val reviewId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+        val review = CourseReview(reviewId, courseId, user.id, user.name, rating, comment, timestamp)
+        viewModelScope.launch {
+            repository.addReview(review)
+            loadReviews(courseId)
+        }
+    }
+
+    fun loadReviews(courseId: String) {
+        if (activeReviewJobs.containsKey(courseId)) return
+        activeReviewJobs[courseId] = viewModelScope.launch {
+            repository.getReviews(courseId).collect { reviews ->
+                _reviews.value += (courseId to reviews)
+            }
+        }
+    }
+
     fun completeOnboarding(interests: List<String>, goals: List<String>) {
         val user = _userProfile.value ?: return
         val updated = user.copy(interests = interests, goals = goals, onboardingCompleted = true)
@@ -238,18 +258,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun getCourseModules(courseId: String): Flow<List<Module>> = repository.getModules(courseId).map { 
-        if (it.isEmpty()) MockData.modules.filter { m -> m.courseId == courseId } else it
-    }
-    fun getModuleLessons(moduleId: String): Flow<List<Lesson>> = repository.getLessons(moduleId).map {
-        if (it.isEmpty()) MockData.lessons.filter { l -> l.moduleId == moduleId } else it
-    }
+    fun getCourseModules(courseId: String): Flow<List<Module>> = repository.getModules(courseId)
+    
+    fun getModuleLessons(moduleId: String): Flow<List<Lesson>> = repository.getLessons(moduleId)
 
     fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> = flow {
-        // First emit from MockData so UI is instant
-        val localBackup = MockData.lessons.filter { it.courseId == courseId }
-        emit(localBackup)
-
         repository.getModules(courseId).collect { mods ->
             if (mods.isNotEmpty()) {
                 val allLessons = mutableListOf<Lesson>()

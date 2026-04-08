@@ -60,7 +60,6 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
     val context = LocalContext.current
     val courses by viewModel.courses.collectAsState()
     
-    // Robust lookup for lesson and course
     val lesson = remember(lessonId) { 
         MockData.lessons.find { it.id == lessonId || FirebaseRepository.getMockId(it.id) == lessonId }
     }
@@ -80,11 +79,11 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = { 
-                    Column {
-                        Text(course.title, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(mod?.title ?: "", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(course.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(mod?.title ?: "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 navigationIcon = {
@@ -92,7 +91,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
@@ -354,7 +353,6 @@ fun ReelItem(
             seekAmount = seekAmount
         )
 
-        // Center Heart Popup Animation
         AnimatedVisibility(
             visible = showHeartAnim,
             enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn(),
@@ -364,7 +362,6 @@ fun ReelItem(
             Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(110.dp))
         }
 
-        // Visible Pause Indicator
         AnimatedVisibility(
             visible = isManuallyPaused,
             enter = fadeIn() + scaleIn(),
@@ -474,17 +471,20 @@ fun ReelItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            InteractionItem(
-                icon = Icons.Default.Favorite, 
-                label = if (isLiked) "Liked" else "Like", 
-                isActive = isLiked, 
-                activeColor = Color.Red,
-                onClick = { 
-                    viewModel.toggleLike(lesson.id)
-                    soundManager.playLikeSound()
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                InteractionItem(
+                    icon = Icons.Default.Favorite, 
+                    label = "",
+                    isActive = isLiked, 
+                    activeColor = Color.Red,
+                    onClick = { 
+                        viewModel.toggleLike(lesson.id)
+                        soundManager.playLikeSound()
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                )
+                Text(lesson.likeCount.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
             InteractionItem(
                 icon = Icons.AutoMirrored.Filled.Comment, 
                 label = if (lessonComments.isEmpty()) "Chat" else lessonComments.size.toString(),
@@ -630,8 +630,10 @@ fun InteractionItem(
                 modifier = Modifier.size(28.dp).scale(if (isActive) 1.1f else 1.0f)
             )
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(text = label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        if (label.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(text = label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 

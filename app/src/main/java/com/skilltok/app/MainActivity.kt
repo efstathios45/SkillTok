@@ -3,6 +3,7 @@ package com.skilltok.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -22,6 +23,7 @@ import com.google.firebase.auth.FirebaseAuth
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             var isDarkMode by remember { mutableStateOf(false) }
             SkillTokTheme(isDarkMode = isDarkMode) {
@@ -75,7 +77,6 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                 }
             }
         } else if (currentRoute == "auth") {
-            // ONLY NAVIGATE IF THE PROFILE MATCHES THE LOGGED IN USER
             if (profile != null && profile.id == user.uid) {
                 if (profile.onboardingCompleted == false) {
                     navController.navigate("onboarding") { popUpTo(0) }
@@ -87,6 +88,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         bottomBar = {
             val showBottomBar = auth.currentUser != null && 
                                auth.currentUser?.isEmailVerified == true &&
