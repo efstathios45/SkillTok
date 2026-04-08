@@ -111,24 +111,26 @@ class FirebaseRepository {
         awaitClose { subscription.remove() }
     }
 
-    fun getModules(courseId: String): Flow<List<Module>> = flow {
-        try {
-            val snapshot = db.collection("modules").whereEqualTo("courseId", courseId).get().await()
-            val modules = snapshot.documents.mapNotNull { it.toObject<Module>()?.copy(id = it.id) }
-            emit(modules.sortedBy { it.orderIndex })
-        } catch (e: Exception) {
-            emit(emptyList<Module>())
-        }
+    fun getModules(courseId: String): Flow<List<Module>> = callbackFlow {
+        val subscription = db.collection("modules")
+            .whereEqualTo("courseId", courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                val modules = snapshot?.documents?.mapNotNull { it.toObject<Module>()?.copy(id = it.id) } ?: emptyList()
+                trySend(modules.sortedBy { it.orderIndex })
+            }
+        awaitClose { subscription.remove() }
     }
 
-    fun getLessons(moduleId: String): Flow<List<Lesson>> = flow {
-        try {
-            val snapshot = db.collection("lessons").whereEqualTo("moduleId", moduleId).get().await()
-            val lessons = snapshot.documents.mapNotNull { it.toObject<Lesson>()?.copy(id = it.id) }
-            emit(lessons.sortedBy { it.orderIndex })
-        } catch (e: Exception) {
-            emit(emptyList<Lesson>())
-        }
+    fun getLessons(moduleId: String): Flow<List<Lesson>> = callbackFlow {
+        val subscription = db.collection("lessons")
+            .whereEqualTo("moduleId", moduleId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                val lessons = snapshot?.documents?.mapNotNull { it.toObject<Lesson>()?.copy(id = it.id) } ?: emptyList()
+                trySend(lessons.sortedBy { it.orderIndex })
+            }
+        awaitClose { subscription.remove() }
     }
 
     // --- Enrollment ---
@@ -165,6 +167,93 @@ class FirebaseRepository {
                 }
                 val enrollments = snapshot?.documents?.mapNotNull { it.toObject<Enrollment>() } ?: emptyList()
                 trySend(enrollments)
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    // --- Professor Functions ---
+    fun getCourseEnrollments(courseId: String): Flow<List<Enrollment>> = callbackFlow {
+        val subscription = db.collection("enrollments")
+            .whereEqualTo("courseId", courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.toObject<Enrollment>() } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    fun getStudentProgress(courseId: String): Flow<List<Map<String, Any>>> = callbackFlow {
+        val subscription = db.collection("progress")
+            .whereEqualTo("courseId", courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.map { it.data ?: emptyMap() } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    suspend fun addForumTopic(topic: ForumTopic) {
+        try { db.collection("forum_topics").document(topic.id).set(topic).await() } catch(e: Exception) {}
+    }
+
+    fun getForumTopics(courseId: String): Flow<List<ForumTopic>> = callbackFlow {
+        val subscription = db.collection("forum_topics")
+            .whereEqualTo("courseId", courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.toObject<ForumTopic>() } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    suspend fun addForumReply(reply: ForumReply) {
+        try { db.collection("forum_replies").document(reply.id).set(reply).await() } catch(e: Exception) {}
+    }
+
+    fun getForumReplies(topicId: String): Flow<List<ForumReply>> = callbackFlow {
+        val subscription = db.collection("forum_replies")
+            .whereEqualTo("topicId", topicId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.toObject<ForumReply>() } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    suspend fun addNotification(notification: CourseNotification) {
+        try { db.collection("course_notifications").document(notification.id).set(notification).await() } catch(e: Exception) {}
+    }
+
+    fun getCourseNotifications(courseId: String): Flow<List<CourseNotification>> = callbackFlow {
+        val subscription = db.collection("course_notifications")
+            .whereEqualTo("courseId", courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.toObject<CourseNotification>() } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    suspend fun saveQuizResult(result: QuizResult) {
+        try { db.collection("quiz_results").document(result.id).set(result).await() } catch(e: Exception) {}
+    }
+
+    fun getCourseQuizResults(courseId: String): Flow<List<QuizResult>> = callbackFlow {
+        val subscription = db.collection("quiz_results")
+            .whereEqualTo("courseId", courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.toObject<QuizResult>() } ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    fun getLessonQuizzes(lessonId: String): Flow<List<QuizQuestion>> = callbackFlow {
+        val subscription = db.collection("quizzes")
+            .whereEqualTo("lessonId", lessonId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.documents?.mapNotNull { it.toObject<QuizQuestion>() } ?: emptyList())
             }
         awaitClose { subscription.remove() }
     }

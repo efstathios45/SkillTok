@@ -7,7 +7,7 @@ data class User(
     val name: String = "",
     val username: String = "",
     val email: String = "",
-    val role: String = "learner", // "learner", "instructor"
+    val role: String = "learner", // "learner", "professor"
     val xp: Int = 0,
     val streak: Int = 0,
     val level: Int = 1,
@@ -30,7 +30,7 @@ data class Course(
     val learnersCount: Int = 0,
     @get:PropertyName("isPublished") @set:PropertyName("isPublished")
     var isPublished: Boolean = false,
-    val source: String = "user", // "user" or "ai"
+    val source: String = "user", // "user", "ai"
     val generationStatus: String? = null,
     val originalPrompt: String? = null,
     val createdAt: String = "",
@@ -55,7 +55,7 @@ data class Lesson(
     val lessonType: String = "video", // "video", "quiz", "article"
     val durationSeconds: Int = 0,
     val orderIndex: Int = 0,
-    val type: String = "reel", // "reel" or "deep_dive"
+    val type: String = "reel", // "reel", "deep_dive"
     val hasQuiz: Boolean = false,
     val contentUrl: String = "",
     val resourceUrl: String? = null,
@@ -72,6 +72,43 @@ data class QuizQuestion(
     val options: List<String> = emptyList(),
     val correctAnswerIndexes: List<Int> = emptyList(),
     val explanation: String = ""
+)
+
+data class QuizResult(
+    val id: String = "",
+    val lessonId: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val score: Int = 0,
+    val total: Int = 0,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class ForumTopic(
+    val id: String = "",
+    val courseId: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val title: String = "",
+    val content: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+data class ForumReply(
+    val id: String = "",
+    val topicId: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val text: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+data class CourseNotification(
+    val id: String = "",
+    val courseId: String = "",
+    val title: String = "",
+    val content: String = "",
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 data class ReelComment(

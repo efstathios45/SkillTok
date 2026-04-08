@@ -53,6 +53,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _completedLessons = MutableStateFlow<Set<String>>(emptySet())
     val completedLessons: StateFlow<Set<String>> = _completedLessons.asStateFlow()
 
+    // Professor Specific Flows
+    private val _participants = MutableStateFlow<Map<String, List<Enrollment>>>(emptyMap())
+    val participants: StateFlow<Map<String, List<Enrollment>>> = _participants.asStateFlow()
+
+    private val _quizResults = MutableStateFlow<Map<String, List<QuizResult>>>(emptyMap())
+    val quizResults: StateFlow<Map<String, List<QuizResult>>> = _quizResults.asStateFlow()
+
+    private val _forumTopics = MutableStateFlow<Map<String, List<ForumTopic>>>(emptyMap())
+    val forumTopics: StateFlow<Map<String, List<ForumTopic>>> = _forumTopics.asStateFlow()
+
     private var userDataJob: Job? = null
     private val activeCommentJobs = mutableMapOf<String, Job>()
     private val activeReviewJobs = mutableMapOf<String, Job>()
@@ -67,7 +77,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.getRemoteCourses().collect { remoteCourses ->
                 if (remoteCourses.isNotEmpty()) {
-                    _courses.value = remoteCourses
+                    _courses.value = (remoteCourses + MockData.courses).distinctBy { it.id }
                     remoteCourses.forEach { 
                         db.insertCourse(LocalCourseEntity(it.id, it.title, it.description, it.thumbnailUrl, it.subject, it.level)) 
                     }
@@ -156,12 +166,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null) {
+    suspend fun syncUserToDatabase(firebaseUser: FirebaseUser, customName: String? = null, role: String? = null) {
         val newUser = User(
             id = firebaseUser.uid, 
             name = customName ?: firebaseUser.displayName ?: "Learner", 
             email = firebaseUser.email ?: "", 
             photoUrl = firebaseUser.photoUrl?.toString(),
+            role = role ?: _userProfile.value?.role ?: "learner",
             onboardingCompleted = _userProfile.value?.onboardingCompleted ?: false,
             interests = _userProfile.value?.interests ?: emptyList(),
             goals = _userProfile.value?.goals ?: emptyList()
@@ -245,6 +256,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.getReviews(courseId).collect { reviews ->
                 _reviews.value += (courseId to reviews)
             }
+        }
+    }
+
+    // --- Professor Data Loading ---
+    fun loadCourseManagementData(courseId: String) {
+        viewModelScope.launch {
+            // Load Participants
+            repository.getCourseEnrollments(courseId).collect { enrollments ->
+                _participants.value += (courseId to enrollments)
+            }
+        }
+        viewModelScope.launch {
+            // Load Forum Topics
+            repository.getForumTopics(courseId).collect { topics ->
+                _forumTopics.value += (courseId to topics)
+            }
+        }
+    }
+
+    fun createForumTopic(courseId: String, title: String, content: String) {
+        val user = _userProfile.value ?: return
+        val topicId = UUID.randomUUID().toString()
+        val topic = ForumTopic(topicId, courseId, user.id, user.name, title, content)
+        viewModelScope.launch {
+            repository.addForumTopic(topic)
+            loadCourseManagementData(courseId)
+        }
+    }
+
+    fun sendClassNotification(courseId: String, title: String, content: String) {
+        val notification = CourseNotification(UUID.randomUUID().toString(), courseId, title, content)
+        viewModelScope.launch {
+            repository.addNotification(notification)
         }
     }
 
@@ -338,14 +382,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
             val courseId = UUID.randomUUID().toString()
-            val newCourse = Course(id = courseId, title = title, description = description, subject = subject, level = level, createdByUserId = uid)
+            val newCourse = Course(id = courseId, title = title, description = description, subject = subject, level = level, createdByUserId = uid, thumbnailUrl = "")
             repository.addCourse(newCourse)
             
             modules.forEachIndexed { mIdx, mData ->
                 val moduleId = UUID.randomUUID().toString()
                 repository.addModule(Module(id = moduleId, courseId = courseId, title = mData.title, orderIndex = mIdx))
                 mData.lessons.forEachIndexed { lIdx, lData ->
-                    repository.addLesson(Lesson(id = UUID.randomUUID().toString(), moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video", type = "reel"))
+                    val lessonId = UUID.randomUUID().toString()
+                    repository.addLesson(Lesson(id = lessonId, moduleId = moduleId, courseId = courseId, title = lData.title, videoUrl = lData.videoUrl, orderIndex = lIdx, lessonType = "video", type = "reel", hasQuiz = lData.quiz.isNotEmpty()))
+                    
+                    // Add Quizzes
+                    lData.quiz.forEach { q ->
+                        repository.addQuizQuestion(QuizQuestion(UUID.randomUUID().toString(), lessonId, lessonId, q.question, "single", q.options, listOf(q.correctIndex)))
+                    }
                 }
             }
             loadCourses()

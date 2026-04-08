@@ -15,6 +15,7 @@ data class LocalUserEntity(
     val firebaseId: String? = null, // Sync link
     val name: String,
     val email: String,
+    val role: String = "learner",
     val xp: Int,
     val streak: Int,
     val level: Int
@@ -134,7 +135,7 @@ interface SkillTokDao {
 
 @Database(
     entities = [LocalUserEntity::class, LocalCourseEntity::class, LocalEnrollmentEntity::class, LocalCompletionEntity::class, LocalInteractionEntity::class, LocalCommentEntity::class, LocalSavedEntity::class], 
-    version = 7, // Bumping version for DAO change
+    version = 8, // Bumping version for role field
     exportSchema = false
 )
 abstract class SkillTokDatabase : RoomDatabase() {

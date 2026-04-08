@@ -176,7 +176,13 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 }
 
 @Composable
-fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: NavHostController, viewModel: MainViewModel) {
+fun ReelsPlayerScreen(
+    courseId: String, 
+    startLessonId: String?, 
+    navController: NavHostController, 
+    viewModel: MainViewModel,
+    onMenuClick: () -> Unit = {}
+) {
     val courses by viewModel.courses.collectAsState()
     
     val course = remember(courses, courseId) {
@@ -231,40 +237,57 @@ fun ReelsPlayerScreen(courseId: String, startLessonId: String?, navController: N
                 }
             }
 
-            Column(
+            // Floating Overlays
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp)
                     .statusBarsPadding()
+                    .padding(16.dp)
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(
-                        onClick = { navController.popBackStack() },
-                        modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = onMenuClick,
+                            modifier = Modifier.background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.Menu, null, tint = Color.White)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        IconButton(
+                            onClick = { navController.popBackStack() },
+                            modifier = Modifier.background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                        }
                     }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(course.title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                        Text("${pagerState.currentPage + 1} of ${lessons.size} lessons", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            course.title, 
+                            color = Color.White, 
+                            fontWeight = FontWeight.ExtraBold, 
+                            fontSize = 16.sp,
+                            modifier = Modifier.graphicsLayer { shadowElevation = 4f }
+                        )
+                        Text(
+                            "${pagerState.currentPage + 1} / ${lessons.size}", 
+                            color = Color.White.copy(alpha = 0.7f), 
+                            fontSize = 12.sp
+                        )
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                LinearProgressIndicator(
-                    progress = { if (lessons.isNotEmpty()) (pagerState.currentPage + 1).toFloat() / lessons.size else 0f },
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = AppColors.Primary,
-                    trackColor = Color.White.copy(alpha = 0.1f)
-                )
             }
+            
+            LinearProgressIndicator(
+                progress = { if (lessons.isNotEmpty()) (pagerState.currentPage + 1).toFloat() / lessons.size else 0f },
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(2.dp),
+                color = AppColors.Primary,
+                trackColor = Color.White.copy(alpha = 0.1f)
+            )
         }
 
         if (course == null || lessons.isEmpty()) {

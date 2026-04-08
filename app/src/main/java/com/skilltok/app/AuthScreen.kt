@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
@@ -26,13 +27,17 @@ import com.google.firebase.auth.UserProfileChangeRequest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
     var isLogin by remember { mutableStateOf(true) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
+    var selectedRole by remember { mutableStateOf("learner") }
     var isLoading by remember { mutableStateOf(false) }
+    var passwordVisible by remember { mutableStateOf(false) }
     
     val auth = remember { FirebaseAuth.getInstance() }
     val scope = rememberCoroutineScope()
@@ -44,12 +49,14 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
 
     val isEmailValid = Patterns.EMAIL_ADDRESS.matcher(email).matches()
     val isPasswordValid = password.length >= 6
+    val passwordsMatch = isLogin || password == confirmPassword
     val isNameValid = isLogin || name.isNotBlank()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
             .padding(24.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -58,7 +65,7 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
         Icon(
             imageVector = Icons.Default.School,
             contentDescription = null,
-            modifier = Modifier.size(80.dp),
+            modifier = Modifier.size(64.dp),
             tint = MaterialTheme.colorScheme.primary
         )
         
@@ -66,18 +73,19 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
         
         Text(
             text = if (showVerificationMessage) "Verify Your Email" else if (isLogin) "Welcome Back" else "Create Account",
-            fontSize = 28.sp,
+            fontSize = 24.sp,
             fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.onBackground
         )
 
         Text(
-            text = if (showVerificationMessage) "Check your inbox for a verification link." else if (isLogin) "Sign in to continue learning" else "Join the community of skill seekers",
+            text = if (showVerificationMessage) "Check your inbox for a verification link." else if (isLogin) "Sign in to continue learning" else "Choose your role and start building skills",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp)
+            modifier = Modifier.padding(top = 8.dp),
+            fontSize = 14.sp
         )
         
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         if (showVerificationMessage) {
             Button(
@@ -107,12 +115,30 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
             }
         } else {
             if (!isLogin) {
+                // ROLE SELECTION
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    listOf("learner", "professor").forEach { role ->
+                        val isSelected = selectedRole == role
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedRole = role },
+                            label = { Text(role.replaceFirstChar { it.uppercase() }, modifier = Modifier.padding(8.dp)) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Full Name") },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(12.dp),
                     leadingIcon = { Icon(Icons.Default.Person, null) }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -123,7 +149,7 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                 onValueChange = { email = it },
                 label = { Text("Email Address") },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(12.dp),
                 leadingIcon = { Icon(Icons.Default.Email, null) },
                 isError = email.isNotEmpty() && !isEmailValid
             )
@@ -135,11 +161,44 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                 onValueChange = { password = it },
                 label = { Text("Password") },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                visualTransformation = PasswordVisualTransformation(),
+                shape = RoundedCornerShape(12.dp),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 leadingIcon = { Icon(Icons.Default.Lock, null) },
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, null)
+                    }
+                },
                 isError = password.isNotEmpty() && !isPasswordValid
             )
+
+            if (!isLogin) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = { Text("Confirm Password") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    visualTransformation = PasswordVisualTransformation(),
+                    leadingIcon = { Icon(Icons.Default.LockReset, null) },
+                    isError = confirmPassword.isNotEmpty() && password != confirmPassword
+                )
+            } else {
+                // FORGOT PASSWORD
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = {
+                        if (isEmailValid) {
+                            auth.sendPasswordResetEmail(email)
+                            Toast.makeText(context, "Reset link sent to $email", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Please enter a valid email first.", Toast.LENGTH_SHORT).show()
+                        }
+                    }) {
+                        Text("Forgot Password?", fontSize = 13.sp)
+                    }
+                }
+            }
             
             Spacer(modifier = Modifier.height(24.dp))
             
@@ -155,7 +214,7 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                                     onLoginSuccess()
                                 } else {
                                     showVerificationMessage = true
-                                    Toast.makeText(context, "Link sent to $email", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "Please verify your email.", Toast.LENGTH_LONG).show()
                                 }
                             } else {
                                 val result = auth.createUserWithEmailAndPassword(email, password).await()
@@ -164,6 +223,10 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                                     .build()
                                 result.user?.updateProfile(profileUpdates)?.await()
                                 result.user?.sendEmailVerification()?.await()
+                                
+                                // Sync with selected role
+                                viewModel.syncUserToDatabase(result.user!!, customName = name, role = selectedRole)
+                                
                                 showVerificationMessage = true
                                 Toast.makeText(context, "Verification link sent to $email", Toast.LENGTH_LONG).show()
                             }
@@ -176,7 +239,7 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(16.dp),
-                enabled = !isLoading && isEmailValid && isPasswordValid && isNameValid
+                enabled = !isLoading && isEmailValid && isPasswordValid && isNameValid && passwordsMatch
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
@@ -187,7 +250,7 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
             
-            Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
             
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -204,7 +267,7 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
                             } else {
                                 val error = result.exceptionOrNull()
                                 Log.e("AuthScreen", "Google Sign In Error", error)
-                                Toast.makeText(context, "Google Sign In failed. Ensure SHA-1 is in Firebase Console.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Google Login failed. Check SHA-1.", Toast.LENGTH_LONG).show()
                             }
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -220,13 +283,13 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.AccountCircle, // Placeholder for Google Icon
+                        imageVector = Icons.Default.AccountCircle,
                         contentDescription = null,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("Continue with Google", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Continue with Google", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                 }
             }
 
@@ -235,7 +298,8 @@ fun AuthScreen(viewModel: MainViewModel, onLoginSuccess: () -> Unit) {
             TextButton(onClick = { isLogin = !isLogin }) {
                 Text(
                     if (isLogin) "Don't have an account? Sign Up" else "Already have an account? Sign In",
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 14.sp
                 )
             }
         }
