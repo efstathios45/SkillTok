@@ -394,7 +394,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     
                     // Add Quizzes
                     lData.quiz.forEach { q ->
-                        repository.addQuizQuestion(QuizQuestion(UUID.randomUUID().toString(), lessonId, lessonId, q.question, "single", q.options, listOf(q.correctIndex)))
+                        val type = if (q.isMultipleChoice) "multiple" else "single"
+                        repository.addQuizQuestion(QuizQuestion(UUID.randomUUID().toString(), lessonId, lessonId, q.question, type, q.options, q.correctIndexes))
                     }
                 }
             }
