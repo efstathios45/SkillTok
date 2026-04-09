@@ -6,18 +6,23 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -74,7 +79,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     val scope = rememberCoroutineScope()
     
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
+    val currentRoute = navBackStackEntry?.destination?.route ?: ""
 
     LaunchedEffect(auth.currentUser, auth.currentUser?.isEmailVerified, currentUser) {
         val user = auth.currentUser
@@ -87,7 +92,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
             }
         } else if (currentRoute == "auth") {
             if (profile != null && profile.id == user.uid) {
-                if (profile.onboardingCompleted == false) {
+                if (!profile.onboardingCompleted) {
                     navController.navigate("onboarding") { popUpTo(0) }
                 } else {
                     navController.navigate("home") { popUpTo(0) }
@@ -101,10 +106,10 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     
     val showBars = isAppReady && 
                       currentRoute != "create_course" &&
-                      currentRoute?.startsWith("course_management/") == false &&
-                      currentRoute?.startsWith("lesson/") == false &&
-                      currentRoute?.startsWith("quiz/") == false &&
-                      currentRoute?.startsWith("reels/") == false
+                      !currentRoute.startsWith("course_management/") &&
+                      !currentRoute.startsWith("lesson/") &&
+                      !currentRoute.startsWith("quiz/") &&
+                      !currentRoute.startsWith("reels/")
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -180,28 +185,6 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     }
 
                     NavigationDrawerItem(
-                        label = { Text("My Courses", fontSize = 14.sp) },
-                        selected = currentRoute == "my_courses",
-                        onClick = { 
-                            navController.navigate("my_courses")
-                            scope.launch { drawerState.close() }
-                        },
-                        icon = { Icon(Icons.Default.School, null, modifier = Modifier.size(20.dp)) },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    NavigationDrawerItem(
-                        label = { Text("Saved Reels", fontSize = 14.sp) },
-                        selected = currentRoute == "saved_videos",
-                        onClick = { 
-                            navController.navigate("saved_videos")
-                            scope.launch { drawerState.close() }
-                        },
-                        icon = { Icon(Icons.Default.Bookmark, null, modifier = Modifier.size(20.dp)) },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    NavigationDrawerItem(
                         label = { Text("Settings", fontSize = 14.sp) },
                         selected = currentRoute == "settings",
                         onClick = { 
@@ -233,11 +216,52 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 if (showBars) {
-                    Box(modifier = Modifier.statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
-                        }
-                    }
+                    CenterAlignedTopAppBar(
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "SkillTok",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 20.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                if (currentUser != null) {
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    LevelBadge(level = currentUser!!.level, xp = currentUser!!.xp)
+                                }
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "Menu")
+                            }
+                        },
+                        actions = {
+                            if (currentUser != null) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.LocalFireDepartment, 
+                                        null, 
+                                        tint = Color(0xFFFF4500), 
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = currentUser!!.streak.toString(),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                            titleContentColor = MaterialTheme.colorScheme.onBackground
+                        )
+                    )
                 }
             },
             bottomBar = {
@@ -258,6 +282,12 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                             onClick = { navController.navigate("courses") { launchSingleTop = true } },
                             icon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(24.dp)) },
                             label = { Text("Explore", fontSize = 11.sp) }
+                        )
+                        NavigationBarItem(
+                            selected = currentRoute == "my_courses" || currentRoute == "saved_videos",
+                            onClick = { navController.navigate("my_courses") { launchSingleTop = true } },
+                            icon = { Icon(if (currentRoute == "my_courses") Icons.AutoMirrored.Filled.LibraryBooks else Icons.Default.LibraryAddCheck, null, modifier = Modifier.size(24.dp)) },
+                            label = { Text("Library", fontSize = 11.sp) }
                         )
                         NavigationBarItem(
                             selected = currentRoute == "profile",
@@ -300,7 +330,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     ) 
                 }
                 composable("settings") { SettingsScreen(isDarkMode, onThemeToggle) { navController.popBackStack() } }
-                composable("my_courses") { MyCoursesScreen(navController, viewModel) }
+                composable("my_courses") { LibraryScreen(navController, viewModel) }
                 composable("saved_videos") { SavedVideosScreen(navController, viewModel) }
                 composable("course_detail/{courseId}") { CourseDetailPage(it.arguments?.getString("courseId") ?: "", navController, viewModel) }
                 composable("create_course") { CreateCourseScreen(navController, viewModel) }
@@ -318,6 +348,64 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                 composable("lesson/{lessonId}") { LessonPlayerScreen(it.arguments?.getString("lessonId") ?: "", navController, viewModel) }
                 composable("quiz/{lessonId}") { QuizScreen(it.arguments?.getString("lessonId") ?: "", navController, viewModel) }
             }
+        }
+    }
+}
+
+@Composable
+fun LevelBadge(level: Int, xp: Int) {
+    val progress = (xp % 100) / 100f
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = level.toString(),
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .width(40.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp)),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+        )
+    }
+}
+
+@Composable
+fun LibraryScreen(navController: NavHostController, viewModel: MainViewModel) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+    
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.primary,
+            divider = {}
+        ) {
+            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Courses") })
+            Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Saved Reels") })
+        }
+        
+        if (selectedTab == 0) {
+            MyCoursesScreen(navController, viewModel)
+        } else {
+            SavedVideosScreen(navController, viewModel)
         }
     }
 }

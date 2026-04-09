@@ -161,12 +161,13 @@ class FirebaseRepository {
     }
 
     // --- Enrollment ---
-    suspend fun enrollInCourse(userId: String, courseId: String) {
+    suspend fun enrollInCourse(userId: String, courseId: String, userName: String) {
         try {
             val now = System.currentTimeMillis().toString()
             val data = mapOf(
                 "id" to "${userId}_${courseId}",
                 "userId" to userId,
+                "userName" to userName,
                 "courseId" to courseId,
                 "enrolledAt" to now,
                 "startedAt" to now,
@@ -359,11 +360,23 @@ class FirebaseRepository {
         } catch (e: Exception) { null }
     }
 
+    suspend fun deleteModule(moduleId: String) {
+        try {
+            db.collection("modules").document(moduleId).delete().await()
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Delete module failed", e) }
+    }
+
     suspend fun addLesson(lesson: Lesson): String? {
         return try {
             db.collection("lessons").document(lesson.id).set(lesson).await()
             lesson.id
         } catch (e: Exception) { null }
+    }
+
+    suspend fun deleteLesson(lessonId: String) {
+        try {
+            db.collection("lessons").document(lessonId).delete().await()
+        } catch (e: Exception) { Log.e("FirebaseRepository", "Delete lesson failed", e) }
     }
 
     suspend fun addQuizQuestion(question: QuizQuestion) {

@@ -54,32 +54,37 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewModel: MainViewModel) {
     val context = LocalContext.current
     val courses by viewModel.courses.collectAsState()
     
-    // Improved lesson lookup: check MockData first, then try to find it in modules
     var lesson by remember(lessonId) { 
         mutableStateOf(MockData.lessons.find { it.id == lessonId || FirebaseRepository.getMockId(it.id) == lessonId })
     }
     
-    // Search in modules if not in MockData
+    var isLoading by remember { mutableStateOf(lesson == null) }
+
     LaunchedEffect(lessonId, courses) {
         if (lesson == null) {
-            courses.forEach { course ->
-                viewModel.getCourseModules(course.id).collect { modules ->
-                    modules.forEach { module ->
-                        viewModel.getModuleLessons(module.id).collect { lessons ->
-                            val found = lessons.find { it.id == lessonId }
-                            if (found != null) {
-                                lesson = found
-                            }
-                        }
+            isLoading = true
+            var foundLesson: Lesson? = null
+            for (course in courses) {
+                val modules = viewModel.getCourseModules(course.id).first()
+                for (module in modules) {
+                    val lessons = viewModel.getModuleLessons(module.id).first()
+                    val found = lessons.find { it.id == lessonId }
+                    if (found != null) {
+                        foundLesson = found
+                        break
                     }
                 }
+                if (foundLesson != null) break
             }
+            lesson = foundLesson
+            isLoading = false
         }
     }
 
@@ -87,12 +92,21 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
         courses.find { it.id == lesson?.courseId }
     }
     
-    if (lesson == null || course == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    if (isLoading || (lesson == null && !isLoading)) {
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Loading Lesson...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (isLoading) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Loading Lesson...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Icon(Icons.Default.ErrorOutline, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Lesson not found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick = { navController.popBackStack() }, modifier = Modifier.padding(top = 16.dp)) {
+                        Text("Go Back")
+                    }
+                }
             }
         }
         return
@@ -103,7 +117,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
             CenterAlignedTopAppBar(
                 title = { 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(course.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Text(course?.title ?: "Course", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         Text(lesson?.title ?: "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
@@ -131,7 +145,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CourseBadge(course.subject)
+                    course?.let { CourseBadge(it.subject) }
                     CourseBadge("${lesson!!.durationSeconds / 60}m")
                 }
 
@@ -311,7 +325,7 @@ fun ReelsPlayerScreen(
             )
         }
 
-        if (course == null || lessons.isEmpty()) {
+        if (course == null || (lessons.isEmpty() && course != null)) {
             IconButton(
                 onClick = { navController.popBackStack() },
                 modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(16.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape)

@@ -66,6 +66,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _forumReplies = MutableStateFlow<Map<String, List<ForumReply>>>(emptyMap())
     val forumReplies: StateFlow<Map<String, List<ForumReply>>> = _forumReplies.asStateFlow()
 
+    private val _levelUpEvent = MutableSharedFlow<Int>()
+    val levelUpEvent = _levelUpEvent.asSharedFlow()
+
     private var userDataJob: Job? = null
     private val activeCommentJobs = mutableMapOf<String, Job>()
     private val activeReviewJobs = mutableMapOf<String, Job>()
@@ -182,6 +185,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.updateUserProfile(newUser)
         _userProfile.value = newUser
         db.insertUserProfile(LocalUserEntity(id = newUser.id, name = newUser.name, email = newUser.email, xp = 0, streak = 0, level = 1))
+    }
+
+    private fun calculateLevel(xp: Int): Int {
+        return (xp / 100) + 1
     }
 
     fun toggleLike(lessonId: String) {
@@ -327,6 +334,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun getModuleLessons(moduleId: String): Flow<List<Lesson>> = repository.getLessons(moduleId)
 
+    fun getLesson(lessonId: String): Flow<Lesson?> = repository.getLesson(lessonId)
+
     @OptIn(ExperimentalCoroutinesApi::class)
     fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> {
         return repository.getModules(courseId).flatMapLatest { modules ->
@@ -344,6 +353,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enrollInCourse(courseId: String, startLessonId: String? = null) {
         val uid = auth.currentUser?.uid ?: return
+        val user = _userProfile.value ?: return
         if (isEnrolled(courseId)) {
             _enrollmentState.value = EnrollmentState.Success(courseId)
             return
@@ -352,9 +362,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _enrollmentState.value = EnrollmentState.Loading
             try {
-                repository.enrollInCourse(uid, courseId)
+                repository.enrollInCourse(uid, courseId, user.name)
                 db.insertEnrollment(LocalEnrollmentEntity("${uid}_$courseId", uid, courseId, "enrolled", 0, startLessonId ?: ""))
-                _enrollments.value += Enrollment(userId = uid, courseId = courseId)
+                _enrollments.value += Enrollment(userId = uid, courseId = courseId, userName = user.name)
                 soundManager.playEnrollSound()
                 _enrollmentState.value = EnrollmentState.Success(courseId)
             } catch (e: Exception) {
@@ -417,21 +427,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repository.completeLesson(uid, targetCourseId, lessonId, totalLessonsInCourse)
                 db.insertCompletion(LocalCompletionEntity(userId = uid, lessonId = lessonId, completedAt = System.currentTimeMillis().toString()))
                 
-                val updatedUser = profile.copy(xp = profile.xp + 25)
+                val newXp = profile.xp + 25
+                val newLevel = calculateLevel(newXp)
+                val updatedUser = profile.copy(xp = newXp, level = newLevel)
+                
+                if (newLevel > profile.level) {
+                    _levelUpEvent.emit(newLevel)
+                }
+
                 _userProfile.value = updatedUser
                 repository.updateUserProfile(updatedUser)
-                db.insertUserProfile(LocalUserEntity(id = profile.id, name = profile.name, email = profile.email, xp = updatedUser.xp, streak = profile.streak, level = profile.level))
+                db.insertUserProfile(LocalUserEntity(id = profile.id, name = profile.name, email = profile.email, xp = updatedUser.xp, streak = profile.streak, level = updatedUser.level))
                 
                 _completedLessons.value += lessonId
             }
         }
     }
 
-    fun createCourse(title: String, description: String, subject: String, level: String, modules: List<ModuleData>) {
+    fun createCourse(title: String, description: String, subject: String, level: String, thumbnailUrl: String, modules: List<ModuleData>) {
         val uid = auth.currentUser?.uid ?: return
         viewModelScope.launch {
             val courseId = UUID.randomUUID().toString()
-            val newCourse = Course(id = courseId, title = title, description = description, subject = subject, level = level, createdByUserId = uid, thumbnailUrl = "")
+            val newCourse = Course(id = courseId, title = title, description = description, subject = subject, level = level, createdByUserId = uid, thumbnailUrl = thumbnailUrl)
             repository.addCourse(newCourse)
             
             modules.forEachIndexed { mIdx, mData ->
@@ -449,6 +466,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             loadCourses()
+        }
+    }
+
+    fun updateCourse(course: Course) {
+        viewModelScope.launch {
+            repository.addCourse(course)
+            loadCourses()
+        }
+    }
+
+    fun addModule(courseId: String, title: String, orderIndex: Int) {
+        viewModelScope.launch {
+            repository.addModule(Module(id = UUID.randomUUID().toString(), courseId = courseId, title = title, orderIndex = orderIndex))
+        }
+    }
+
+    fun updateModule(module: Module) {
+        viewModelScope.launch {
+            repository.addModule(module)
+        }
+    }
+
+    fun deleteModule(moduleId: String) {
+        viewModelScope.launch {
+            // Note: Repository needs deleteModule implementation
+            repository.deleteModule(moduleId)
+        }
+    }
+
+    fun addLesson(moduleId: String, courseId: String, title: String, videoUrl: String, orderIndex: Int) {
+        viewModelScope.launch {
+            repository.addLesson(Lesson(id = UUID.randomUUID().toString(), moduleId = moduleId, courseId = courseId, title = title, videoUrl = videoUrl, orderIndex = orderIndex))
+        }
+    }
+
+    fun updateLesson(lesson: Lesson) {
+        viewModelScope.launch {
+            repository.addLesson(lesson)
+        }
+    }
+
+    fun deleteLesson(lessonId: String) {
+        viewModelScope.launch {
+            repository.deleteLesson(lessonId)
         }
     }
 

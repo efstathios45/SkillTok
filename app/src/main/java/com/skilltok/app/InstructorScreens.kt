@@ -57,7 +57,11 @@ fun CreateCourseScreen(navController: NavHostController, viewModel: MainViewMode
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
             )
         }
     ) { padding ->
@@ -152,7 +156,7 @@ fun CreateCourseScreen(navController: NavHostController, viewModel: MainViewMode
                 ModulesStepScreen(
                     onBack = { step = "info" },
                     onPublish = { modules ->
-                        viewModel.createCourse(title, description, subject, level, modules)
+                        viewModel.createCourse(title, description, subject, level, thumbnailUrl, modules)
                         navController.popBackStack()
                     }
                 )
@@ -446,10 +450,18 @@ fun ProfessorCourseCard(course: Course, onClick: () -> Unit) {
 
 @Composable
 fun CourseManagementScreen(courseId: String, viewModel: MainViewModel, navController: NavHostController) {
-    var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Analytics", "Forum", "Announcements")
+    val user by viewModel.userProfile.collectAsState()
     val courses by viewModel.courses.collectAsState()
     val course = courses.find { it.id == courseId } ?: return
+    val isOwner = course.createdByUserId == user?.id
+
+    val tabs = if (isOwner) {
+        listOf("Analytics", "Details", "Curriculum", "Forum", "Announcements")
+    } else {
+        listOf("Forum", "Announcements", "Curriculum")
+    }
+    
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     Scaffold(
         topBar = {
@@ -459,23 +471,232 @@ fun CourseManagementScreen(courseId: String, viewModel: MainViewModel, navContro
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
             )
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            ScrollableTabRow(selectedTabIndex = selectedTab, edgePadding = 16.dp, containerColor = MaterialTheme.colorScheme.background) {
+            ScrollableTabRow(selectedTabIndex = selectedTabIndex, edgePadding = 16.dp, containerColor = MaterialTheme.colorScheme.background) {
                 tabs.forEachIndexed { index, title ->
-                    Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(title) })
+                    Tab(selected = selectedTabIndex == index, onClick = { selectedTabIndex = index }, text = { Text(title) })
                 }
             }
             
-            when (selectedTab) {
-                0 -> AnalyticsTab(courseId, viewModel)
-                1 -> ForumTab(courseId, viewModel)
-                2 -> AnnouncementsTab(courseId, viewModel)
+            val currentTab = tabs[selectedTabIndex]
+            when (currentTab) {
+                "Analytics" -> AnalyticsTab(courseId, viewModel)
+                "Details" -> DetailsTab(course, viewModel, isOwner)
+                "Curriculum" -> CurriculumTab(courseId, viewModel, isOwner)
+                "Forum" -> ForumTab(courseId, viewModel)
+                "Announcements" -> AnnouncementsTab(courseId, viewModel)
             }
         }
+    }
+}
+
+@Composable
+fun DetailsTab(course: Course, viewModel: MainViewModel, isEditable: Boolean = true) {
+    var title by remember { mutableStateOf(course.title) }
+    var description by remember { mutableStateOf(course.description) }
+    var thumbnailUrl by remember { mutableStateOf(course.thumbnailUrl) }
+    var subject by remember { mutableStateOf(course.subject) }
+    
+    val subjects = listOf("Technology", "Design", "Business", "Marketing", "Science", "Psychology")
+
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
+        Text("Course Information", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("Course Title") },
+            modifier = Modifier.fillMaxWidth(),
+            readOnly = !isEditable
+        )
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            label = { Text("Description") },
+            modifier = Modifier.fillMaxWidth().height(120.dp),
+            readOnly = !isEditable
+        )
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        OutlinedTextField(
+            value = thumbnailUrl,
+            onValueChange = { thumbnailUrl = it },
+            label = { Text("Thumbnail URL") },
+            modifier = Modifier.fillMaxWidth(),
+            readOnly = !isEditable
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text("Category", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        FlowRow(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            subjects.forEach { s ->
+                FilterChip(
+                    selected = subject == s,
+                    onClick = { if (isEditable) subject = s },
+                    label = { Text(s) }
+                )
+            }
+        }
+        
+        if (isEditable) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Button(
+                onClick = { 
+                    viewModel.updateCourse(course.copy(title = title, description = description, thumbnailUrl = thumbnailUrl, subject = subject))
+                },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Save Changes", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun CurriculumTab(courseId: String, viewModel: MainViewModel, isEditable: Boolean = true) {
+    val modules by viewModel.getCourseModules(courseId).collectAsState(initial = emptyList())
+    var showAddModule by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Curriculum", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            if (isEditable) {
+                Button(onClick = { showAddModule = true }, shape = RoundedCornerShape(8.dp)) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Text("Module", fontSize = 12.sp)
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        if (modules.isEmpty()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("No modules added yet.", color = Color.Gray)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(modules) { module ->
+                    ModuleManagementItem(module, viewModel, isEditable)
+                }
+            }
+        }
+    }
+
+    if (showAddModule && isEditable) {
+        var moduleTitle by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddModule = false },
+            title = { Text("New Module") },
+            text = {
+                OutlinedTextField(value = moduleTitle, onValueChange = { moduleTitle = it }, label = { Text("Module Title") })
+            },
+            confirmButton = {
+                Button(onClick = { 
+                    viewModel.addModule(courseId, moduleTitle, modules.size)
+                    showAddModule = false 
+                }) { Text("Add") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddModule = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+fun ModuleManagementItem(module: Module, viewModel: MainViewModel, isEditable: Boolean = true) {
+    val lessons by viewModel.getModuleLessons(module.id).collectAsState(initial = emptyList())
+    var expanded by remember { mutableStateOf(false) }
+    var showAddLesson by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { expanded = !expanded }) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(module.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("${lessons.size} Lessons", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (isEditable) {
+                    IconButton(onClick = { viewModel.deleteModule(module.id) }) {
+                        Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+                    }
+                }
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+                }
+            }
+            
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                lessons.forEach { lesson ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically, 
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.PlayCircle, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(lesson.title, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        if (isEditable) {
+                            IconButton(onClick = { viewModel.deleteLesson(lesson.id) }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp), tint = Color.Red.copy(alpha = 0.5f))
+                            }
+                        }
+                    }
+                }
+                if (isEditable) {
+                    TextButton(onClick = { showAddLesson = true }, modifier = Modifier.padding(top = 8.dp)) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add Lesson", fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddLesson && isEditable) {
+        var lessonTitle by remember { mutableStateOf("") }
+        var videoUrl by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddLesson = false },
+            title = { Text("New Lesson") },
+            text = {
+                Column {
+                    OutlinedTextField(value = lessonTitle, onValueChange = { lessonTitle = it }, label = { Text("Lesson Title") })
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("Video URL/ID") })
+                }
+            },
+            confirmButton = {
+                Button(onClick = { 
+                    viewModel.addLesson(module.id, module.courseId, lessonTitle, videoUrl, lessons.size)
+                    showAddLesson = false 
+                }) { Text("Add") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddLesson = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 
@@ -498,11 +719,11 @@ fun AnalyticsTab(courseId: String, viewModel: MainViewModel) {
                     Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                                Text(student.userId.take(1).uppercase(), fontWeight = FontWeight.Bold)
+                                Text(student.userName.take(1).ifEmpty { student.userId.take(1) }.uppercase(), fontWeight = FontWeight.Bold)
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Student ${student.userId.take(5)}", fontWeight = FontWeight.Bold)
+                                Text(student.userName.ifBlank { "Student ${student.userId.take(5)}" }, fontWeight = FontWeight.Bold)
                                 LinearProgressIndicator(progress = { student.progressPercent.toFloat() / 100 }, modifier = Modifier.fillMaxWidth().height(4.dp))
                             }
                             Text("${student.progressPercent}%", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
