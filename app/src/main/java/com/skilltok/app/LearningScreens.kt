@@ -60,19 +60,40 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
     val context = LocalContext.current
     val courses by viewModel.courses.collectAsState()
     
-    val lesson = remember(lessonId) { 
-        MockData.lessons.find { it.id == lessonId || FirebaseRepository.getMockId(it.id) == lessonId }
+    // Improved lesson lookup: check MockData first, then try to find it in modules
+    var lesson by remember(lessonId) { 
+        mutableStateOf(MockData.lessons.find { it.id == lessonId || FirebaseRepository.getMockId(it.id) == lessonId })
     }
+    
+    // Search in modules if not in MockData
+    LaunchedEffect(lessonId, courses) {
+        if (lesson == null) {
+            courses.forEach { course ->
+                viewModel.getCourseModules(course.id).collect { modules ->
+                    modules.forEach { module ->
+                        viewModel.getModuleLessons(module.id).collect { lessons ->
+                            val found = lessons.find { it.id == lessonId }
+                            if (found != null) {
+                                lesson = found
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     val course = remember(lesson, courses) {
-        courses.find { it.id == lesson?.courseId || FirebaseRepository.getMockId(it.id) == lesson?.courseId }
-    }
-    val mod = remember(lesson) {
-        MockData.modules.find { it.id == lesson?.moduleId || FirebaseRepository.getMockId(it.id) == lesson?.moduleId }
+        courses.find { it.id == lesson?.courseId }
     }
     
     if (lesson == null || course == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator()
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Loading Lesson...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         return
     }
@@ -83,7 +104,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                 title = { 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(course.title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                        Text(mod?.title ?: "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(lesson?.title ?: "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 navigationIcon = {
@@ -102,21 +123,21 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                 .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
         ) {
-            YouTubePlayer(videoId = lesson.videoUrl, isMutedGlobal = false, onMuteToggle = {})
+            YouTubePlayer(videoId = lesson!!.videoUrl, isMutedGlobal = false, onMuteToggle = {})
 
             Column(modifier = Modifier.padding(20.dp)) {
-                Text(lesson.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
+                Text(lesson!!.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CourseBadge(course.subject)
-                    CourseBadge("${lesson.durationSeconds / 60}m")
+                    CourseBadge("${lesson!!.durationSeconds / 60}m")
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Text(lesson.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp, fontSize = 15.sp)
+                Text(lesson!!.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp, fontSize = 15.sp)
                 
                 Spacer(modifier = Modifier.height(32.dp))
                 
@@ -141,11 +162,11 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                 Spacer(modifier = Modifier.height(40.dp))
                 
                 val isCompleted by viewModel.completedLessons.collectAsState()
-                val isAlreadyDone = isCompleted.contains(lesson.id)
+                val isAlreadyDone = isCompleted.contains(lesson!!.id)
 
                 Button(
                     onClick = { 
-                        viewModel.completeLesson(lesson.id)
+                        viewModel.completeLesson(lesson!!.id)
                         if (!isAlreadyDone) Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -159,9 +180,9 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                     Text(if (isAlreadyDone) "Completed" else "Mark as Complete", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
                 
-                if (lesson.hasQuiz) {
+                if (lesson!!.hasQuiz) {
                     OutlinedButton(
-                        onClick = { navController.navigate("quiz/${lesson.id}") },
+                        onClick = { navController.navigate("quiz/${lesson!!.id}") },
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(56.dp),
                         shape = RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)

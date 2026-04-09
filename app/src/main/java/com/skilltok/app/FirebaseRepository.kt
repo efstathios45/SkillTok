@@ -111,6 +111,15 @@ class FirebaseRepository {
         awaitClose { subscription.remove() }
     }
 
+    fun getCourse(courseId: String): Flow<Course?> = callbackFlow {
+        val subscription = db.collection("courses").document(courseId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.toObject<Course>()?.copy(id = snapshot.id))
+            }
+        awaitClose { subscription.remove() }
+    }
+
     fun getModules(courseId: String): Flow<List<Module>> = callbackFlow {
         val subscription = db.collection("modules")
             .whereEqualTo("courseId", courseId)
@@ -118,6 +127,15 @@ class FirebaseRepository {
                 if (error != null) { close(error); return@addSnapshotListener }
                 val modules = snapshot?.documents?.mapNotNull { it.toObject<Module>()?.copy(id = it.id) } ?: emptyList()
                 trySend(modules.sortedBy { it.orderIndex })
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    fun getModule(moduleId: String): Flow<Module?> = callbackFlow {
+        val subscription = db.collection("modules").document(moduleId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.toObject<Module>()?.copy(id = snapshot.id))
             }
         awaitClose { subscription.remove() }
     }
@@ -133,11 +151,21 @@ class FirebaseRepository {
         awaitClose { subscription.remove() }
     }
 
+    fun getLesson(lessonId: String): Flow<Lesson?> = callbackFlow {
+        val subscription = db.collection("lessons").document(lessonId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.toObject<Lesson>()?.copy(id = snapshot.id))
+            }
+        awaitClose { subscription.remove() }
+    }
+
     // --- Enrollment ---
     suspend fun enrollInCourse(userId: String, courseId: String) {
         try {
             val now = System.currentTimeMillis().toString()
             val data = mapOf(
+                "id" to "${userId}_${courseId}",
                 "userId" to userId,
                 "courseId" to courseId,
                 "enrolledAt" to now,
@@ -344,7 +372,7 @@ class FirebaseRepository {
         } catch (e: Exception) { Log.e("FirebaseRepository", "Add quiz failed", e) }
     }
 
-    suspend fun completeLesson(userId: String, courseId: String, lessonId: String) {
+    suspend fun completeLesson(userId: String, courseId: String, lessonId: String, totalLessons: Int) {
         try {
             val data = mapOf(
                 "userId" to userId,
@@ -354,6 +382,17 @@ class FirebaseRepository {
                 "completedAt" to System.currentTimeMillis().toString()
             )
             db.collection("progress").document("${userId}_${lessonId}").set(data).await()
+            
+            // Calculate and update enrollment progress
+            if (totalLessons > 0) {
+                val completedCount = db.collection("progress")
+                    .whereEqualTo("userId", userId)
+                    .whereEqualTo("courseId", courseId)
+                    .get().await().size()
+                
+                val progressPercent = (completedCount.toFloat() / totalLessons * 100).toInt().coerceAtMost(100)
+                db.collection("enrollments").document("${userId}_${courseId}").update("progressPercent", progressPercent).await()
+            }
         } catch (e: Exception) { Log.e("FirebaseRepository", "Complete lesson failed", e) }
     }
 }

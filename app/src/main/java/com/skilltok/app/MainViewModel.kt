@@ -53,7 +53,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _completedLessons = MutableStateFlow<Set<String>>(emptySet())
     val completedLessons: StateFlow<Set<String>> = _completedLessons.asStateFlow()
 
-    // Professor Specific Flows
+    // Professor & Forum Specific Flows
     private val _participants = MutableStateFlow<Map<String, List<Enrollment>>>(emptyMap())
     val participants: StateFlow<Map<String, List<Enrollment>>> = _participants.asStateFlow()
 
@@ -62,6 +62,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _forumTopics = MutableStateFlow<Map<String, List<ForumTopic>>>(emptyMap())
     val forumTopics: StateFlow<Map<String, List<ForumTopic>>> = _forumTopics.asStateFlow()
+
+    private val _forumReplies = MutableStateFlow<Map<String, List<ForumReply>>>(emptyMap())
+    val forumReplies: StateFlow<Map<String, List<ForumReply>>> = _forumReplies.asStateFlow()
 
     private var userDataJob: Job? = null
     private val activeCommentJobs = mutableMapOf<String, Job>()
@@ -76,12 +79,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadCourses() {
         viewModelScope.launch {
             repository.getRemoteCourses().collect { remoteCourses ->
-                if (remoteCourses.isNotEmpty()) {
-                    _courses.value = (remoteCourses + MockData.courses).distinctBy { it.id }
-                    remoteCourses.forEach { 
-                        db.insertCourse(LocalCourseEntity(it.id, it.title, it.description, it.thumbnailUrl, it.subject, it.level)) 
-                    }
-                } else if (auth.currentUser != null && !isSeeding) {
+                _courses.value = (remoteCourses + MockData.courses).distinctBy { it.id }
+                remoteCourses.forEach { 
+                    db.insertCourse(LocalCourseEntity(it.id, it.title, it.description, it.thumbnailUrl, it.subject, it.level)) 
+                }
+                if (remoteCourses.isEmpty() && auth.currentUser != null && !isSeeding) {
                     seedDatabase()
                 }
             }
@@ -259,18 +261,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Professor Data Loading ---
+    // --- Professor & Forum Data Loading ---
     fun loadCourseManagementData(courseId: String) {
         viewModelScope.launch {
-            // Load Participants
             repository.getCourseEnrollments(courseId).collect { enrollments ->
-                _participants.value += (courseId to enrollments)
+                _participants.value = _participants.value + (courseId to enrollments)
             }
         }
         viewModelScope.launch {
-            // Load Forum Topics
             repository.getForumTopics(courseId).collect { topics ->
-                _forumTopics.value += (courseId to topics)
+                _forumTopics.value = _forumTopics.value + (courseId to topics)
+            }
+        }
+    }
+
+    fun loadForumReplies(topicId: String) {
+        viewModelScope.launch {
+            repository.getForumReplies(topicId).collect { replies ->
+                _forumReplies.value = _forumReplies.value + (topicId to replies)
             }
         }
     }
@@ -285,7 +293,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun addForumReply(topicId: String, text: String) {
+        val user = _userProfile.value ?: return
+        val replyId = UUID.randomUUID().toString()
+        val reply = ForumReply(replyId, topicId, user.id, user.name, text)
+        viewModelScope.launch {
+            repository.addForumReply(reply)
+            loadForumReplies(topicId)
+        }
+    }
+
     fun sendClassNotification(courseId: String, title: String, content: String) {
+        val user = _userProfile.value ?: return
+        if (user.role != "professor") return
+        
         val notification = CourseNotification(UUID.randomUUID().toString(), courseId, title, content)
         viewModelScope.launch {
             repository.addNotification(notification)
@@ -306,15 +327,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     fun getModuleLessons(moduleId: String): Flow<List<Lesson>> = repository.getLessons(moduleId)
 
-    fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> = flow {
-        repository.getModules(courseId).collect { mods ->
-            if (mods.isNotEmpty()) {
-                val allLessons = mutableListOf<Lesson>()
-                for (mod in mods) {
-                    repository.getLessons(mod.id).collect { lessons ->
-                        allLessons.addAll(lessons)
-                        if (allLessons.isNotEmpty()) emit(allLessons.toList().distinctBy { it.id })
-                    }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun getModuleLessonsForReels(courseId: String): Flow<List<Lesson>> {
+        return repository.getModules(courseId).flatMapLatest { modules ->
+            if (modules.isEmpty()) flowOf(emptyList())
+            else {
+                val lessonFlows = modules.map { repository.getLessons(it.id) }
+                combine(lessonFlows) { arrays ->
+                    arrays.flatMap { it }.distinctBy { it.id }.sortedBy { it.orderIndex }
                 }
             }
         }
@@ -365,16 +385,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_completedLessons.value.contains(lessonId)) return 
 
         viewModelScope.launch {
-            val courseId = MockData.lessons.find { it.id == lessonId }?.courseId ?: ""
-            repository.completeLesson(uid, courseId, lessonId)
-            db.insertCompletion(LocalCompletionEntity(userId = uid, lessonId = lessonId, completedAt = System.currentTimeMillis().toString()))
+            // Determine courseId and total lessons for progress tracking
+            var targetCourseId = ""
+            var totalLessonsInCourse = 0
             
-            val updatedUser = profile.copy(xp = profile.xp + 25)
-            _userProfile.value = updatedUser
-            repository.updateUserProfile(updatedUser)
-            db.insertUserProfile(LocalUserEntity(id = profile.id, name = profile.name, email = profile.email, xp = updatedUser.xp, streak = profile.streak, level = profile.level))
-            
-            _completedLessons.value += lessonId
+            // Check in MockData
+            val mockLesson = MockData.lessons.find { it.id == lessonId }
+            if (mockLesson != null) {
+                targetCourseId = mockLesson.courseId
+                totalLessonsInCourse = MockData.lessons.count { it.courseId == targetCourseId }
+            } else {
+                // Check all loaded courses
+                for (course in _courses.value) {
+                    val modules = repository.getModules(course.id).first()
+                    for (module in modules) {
+                        val lessons = repository.getLessons(module.id).first()
+                        if (lessons.any { it.id == lessonId }) {
+                            targetCourseId = course.id
+                            totalLessonsInCourse = 0
+                            for (m in modules) {
+                                totalLessonsInCourse += repository.getLessons(m.id).first().size
+                            }
+                            break
+                        }
+                    }
+                    if (targetCourseId.isNotEmpty()) break
+                }
+            }
+
+            if (targetCourseId.isNotEmpty()) {
+                repository.completeLesson(uid, targetCourseId, lessonId, totalLessonsInCourse)
+                db.insertCompletion(LocalCompletionEntity(userId = uid, lessonId = lessonId, completedAt = System.currentTimeMillis().toString()))
+                
+                val updatedUser = profile.copy(xp = profile.xp + 25)
+                _userProfile.value = updatedUser
+                repository.updateUserProfile(updatedUser)
+                db.insertUserProfile(LocalUserEntity(id = profile.id, name = profile.name, email = profile.email, xp = updatedUser.xp, streak = profile.streak, level = profile.level))
+                
+                _completedLessons.value += lessonId
+            }
         }
     }
 

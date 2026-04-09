@@ -138,6 +138,7 @@ data class CourseReview(
 data class Enrollment(
     val id: String = "",
     val userId: String = "",
+    val userName: String = "", // Added for real tracking
     val courseId: String = "",
     val status: String = "in_progress",
     val progressPercent: Int = 0,
