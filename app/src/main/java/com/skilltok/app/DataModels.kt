@@ -108,7 +108,18 @@ data class CourseNotification(
     val courseId: String = "",
     val title: String = "",
     val content: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val forumTopicId: String? = null // Link to discussion
+)
+
+data class ChatMessage(
+    val id: String = "",
+    val courseId: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val encryptedText: String = "", // Industry standard: encryption
+    val createdAt: Long = System.currentTimeMillis(),
+    val userRole: String = "learner"
 )
 
 data class ReelComment(

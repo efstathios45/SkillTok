@@ -1,6 +1,7 @@
 package com.skilltok.app
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -145,6 +147,7 @@ fun OnboardingScreen(navController: NavHostController, viewModel: MainViewModel)
 @Composable
 fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
     val courses by viewModel.courses.collectAsState()
+    val enrollments by viewModel.enrollments.collectAsState()
     val pagerState = rememberPagerState(pageCount = { courses.size })
     
     if (courses.isEmpty()) {
@@ -157,6 +160,8 @@ fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
             modifier = Modifier.fillMaxSize().background(Color.Black)
         ) { page ->
             val course = courses[page]
+            val isEnrolled = enrollments.any { it.courseId == course.id }
+            
             Box(modifier = Modifier.fillMaxSize().clickable {
                 navController.navigate("reels/${course.id}/resume")
             }) {
@@ -168,7 +173,10 @@ fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
                 )
                 
                 Box(modifier = Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)))
+                    Brush.verticalGradient(
+                        0.4f to Color.Transparent,
+                        1.0f to Color.Black.copy(alpha = 0.9f)
+                    )
                 ))
                 
                 Column(
@@ -177,26 +185,29 @@ fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
                         .padding(24.dp)
                         .padding(bottom = 80.dp)
                 ) {
-                    CourseBadge(course.subject)
+                    CourseBadge(course.subject, color = Color.White)
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(course.title, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(course.description, color = Color.White.copy(alpha = 0.8f), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(course.title, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, lineHeight = 38.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(course.description, color = Color.White.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
                     
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(28.dp))
                     
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Button(
                             onClick = { navController.navigate("course_detail/${course.id}") },
-                            modifier = Modifier.weight(1f).height(52.dp),
-                            shape = RoundedCornerShape(14.dp)
+                            modifier = Modifier.height(52.dp).weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
-                            Text("View Course", fontWeight = FontWeight.Bold)
+                            Icon(if (isEnrolled) Icons.Default.PlayArrow else Icons.Default.AutoStories, null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (isEnrolled) "Continue Course" else "Unlock Course", fontWeight = FontWeight.ExtraBold)
                         }
                         
                         IconButton(
                             onClick = { /* share logic */ },
-                            modifier = Modifier.size(52.dp).background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                            modifier = Modifier.size(52.dp).background(Color.White.copy(alpha = 0.15f), CircleShape)
                         ) {
                             Icon(Icons.Default.Share, null, tint = Color.White)
                         }
@@ -213,10 +224,10 @@ fun CourseFeedItem(course: Course, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable { onClick() }
-            .shadow(8.dp, RoundedCornerShape(24.dp)),
+            .clickable { onClick() },
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column {
             Box(modifier = Modifier.height(180.dp).fillMaxWidth()) {
@@ -265,15 +276,15 @@ fun CourseFeedItem(course: Course, onClick: () -> Unit) {
 
 @Composable
 fun CoursesListScreen(navController: NavHostController, viewModel: MainViewModel) {
-    val courses by viewModel.courses.collectAsState()
+    val courses by viewModel.recommendedCourses.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
     
-    val categories = listOf("All") + courses.map { it.subject }.distinct().sorted()
+    val categories = remember(courses) { listOf("All") + courses.map { it.subject }.distinct().sorted() }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-            Text("Explore Skills", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+            Text("Discover Skills", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
             
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -317,7 +328,7 @@ fun CoursesListScreen(navController: NavHostController, viewModel: MainViewModel
 
         if (filteredCourses.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("No courses found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("No courses found matching your criteria.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -342,7 +353,7 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().height(220.dp)) {
             Box(modifier = Modifier.fillMaxWidth().height(140.dp).background(AppColors.PrimaryGradient))
             
             Column(
@@ -351,12 +362,12 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
             ) {
                 Box(
                     modifier = Modifier
-                        .size(100.dp)
+                        .size(110.dp)
                         .background(MaterialTheme.colorScheme.surface, CircleShape)
                         .padding(4.dp)
                 ) {
                     Box(modifier = Modifier.fillMaxSize().background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
-                        Text(user.name.take(1).uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Black, color = Color.White)
+                        Text(user.name.take(1).uppercase(), fontSize = 44.sp, fontWeight = FontWeight.Black, color = Color.White)
                     }
                 }
                 Text(user.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
@@ -375,8 +386,8 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
 
         Row(modifier = Modifier.padding(horizontal = 24.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCard(user.xp.toString(), "Total XP", Modifier.weight(1f))
-            StatCard(user.streak.toString(), "Day Streak", Modifier.weight(1f))
-            StatCard(user.savedVideosCount.toString(), "Saved", Modifier.weight(1f))
+            StatCard(user.streak.toString(), "Streak", Modifier.weight(1f))
+            StatCard(user.role.replaceFirstChar { it.uppercase() }, "Role", Modifier.weight(1f))
         }
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -400,7 +411,7 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
             Column(modifier = Modifier.padding(vertical = 8.dp)) {
                 ProfileMenuItem(Icons.Default.School, "My Courses", onClick = { navController.navigate("my_courses") })
                 ProfileMenuItem(Icons.Default.Bookmark, "Saved Reels", onClick = { navController.navigate("saved_videos") })
-                ProfileMenuItem(Icons.Default.WorkspacePremium, "Certificates")
+                ProfileMenuItem(Icons.Default.EmojiEvents, "Global Leaderboard", onClick = { navController.navigate("leaderboard") })
                 if (user.role == "professor") {
                     ProfileMenuItem(Icons.Default.AddBox, "Instructor Tools", onClick = { navController.navigate("professor_dashboard") })
                 }
@@ -412,7 +423,7 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
         TextButton(
             onClick = onLogout,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-            colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
         ) {
             Icon(Icons.AutoMirrored.Filled.Logout, null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
@@ -453,6 +464,77 @@ fun ProfileMenuItem(icon: ImageVector, label: String, color: Color = MaterialThe
         Text(label, fontWeight = FontWeight.SemiBold, color = color, fontSize = 15.sp)
         Spacer(modifier = Modifier.weight(1f))
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f), modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+fun LeaderboardScreen(navController: NavHostController, viewModel: MainViewModel) {
+    val leaderboard by viewModel.leaderboard.collectAsState()
+    val currentUser by viewModel.userProfile.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Box(modifier = Modifier.fillMaxWidth().background(AppColors.PrimaryGradient).padding(24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                }
+                Text("Rankings", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            itemsIndexed(leaderboard) { index, user ->
+                val isMe = user.id == currentUser?.id
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isMe) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surface
+                    ),
+                    border = if (isMe) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = (index + 1).toString(),
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp,
+                            color = when(index) {
+                                0 -> Color(0xFFFFD700)
+                                1 -> Color(0xFFC0C0C0)
+                                2 -> Color(0xFFCD7F32)
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.width(32.dp)
+                        )
+                        
+                        Box(modifier = Modifier.size(40.dp).background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
+                            Text(user.name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(user.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Level ${user.level}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        
+                        Text(
+                            "${user.xp} XP", 
+                            fontWeight = FontWeight.ExtraBold, 
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -526,16 +608,25 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
                     Spacer(modifier = Modifier.weight(1f))
                     
                     if (isEnrolled) {
-                        Button(
-                            onClick = { navController.navigate("reels/${course.id}/resume") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            modifier = Modifier.height(40.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("CONTINUE", fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = { navController.navigate("reels/${course.id}/resume") },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                modifier = Modifier.height(40.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("CONTINUE", fontSize = 12.sp, fontWeight = FontWeight.Black)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = { viewModel.unenrollFromCourse(course.id) },
+                                modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.PersonRemove, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                            }
                         }
                     }
                 }
@@ -826,8 +917,7 @@ fun EnrolledCourseCard(course: Course, progress: Int, onClick: () -> Unit) {
 
 @Composable
 fun SavedVideosScreen(navController: NavHostController, viewModel: MainViewModel) {
-    val savedIds by viewModel.savedVideos.collectAsState()
-    val savedLessons = MockData.lessons.filter { savedIds.contains(it.id) }
+    val savedLessons by viewModel.savedLessons.collectAsState()
 
     if (savedLessons.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:allowBackup="true"
@@ -12,7 +14,7 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:extractNativeLibs="false"
         android:pageSizeCompat="disabled"
         tools:ignore="UnusedAttribute"
@@ -21,7 +23,7 @@
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
-            android:label="@string/title_activity_main"
+            android:label=""
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
             android:exported="true">

@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -455,13 +456,22 @@ fun CourseManagementScreen(courseId: String, viewModel: MainViewModel, navContro
     val course = courses.find { it.id == courseId } ?: return
     val isOwner = course.createdByUserId == user?.id
 
-    val tabs = if (isOwner) {
-        listOf("Analytics", "Details", "Curriculum", "Forum", "Announcements")
-    } else {
-        listOf("Forum", "Announcements", "Curriculum")
+    val tabs = remember(isOwner) {
+        if (isOwner) {
+            listOf("Analytics", "Details", "Curriculum", "Forum", "Announcements", "Chat")
+        } else {
+            listOf("Forum", "Announcements", "Chat", "Curriculum")
+        }
     }
     
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    
+    // Safety check: reset index if tabs change and index becomes invalid
+    LaunchedEffect(tabs) {
+        if (selectedTabIndex >= tabs.size) {
+            selectedTabIndex = 0
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -480,19 +490,24 @@ fun CourseManagementScreen(courseId: String, viewModel: MainViewModel, navContro
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            ScrollableTabRow(selectedTabIndex = selectedTabIndex, edgePadding = 16.dp, containerColor = MaterialTheme.colorScheme.background) {
+            ScrollableTabRow(
+                selectedTabIndex = selectedTabIndex.coerceIn(0, tabs.size - 1), 
+                edgePadding = 16.dp, 
+                containerColor = MaterialTheme.colorScheme.background
+            ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(selected = selectedTabIndex == index, onClick = { selectedTabIndex = index }, text = { Text(title) })
                 }
             }
             
-            val currentTab = tabs[selectedTabIndex]
+            val currentTab = tabs.getOrNull(selectedTabIndex) ?: tabs.firstOrNull() ?: ""
             when (currentTab) {
                 "Analytics" -> AnalyticsTab(courseId, viewModel)
                 "Details" -> DetailsTab(course, viewModel, isOwner)
                 "Curriculum" -> CurriculumTab(courseId, viewModel, isOwner)
                 "Forum" -> ForumTab(courseId, viewModel)
                 "Announcements" -> AnnouncementsTab(courseId, viewModel)
+                "Chat" -> ChatTab(courseId, viewModel)
             }
         }
     }
@@ -600,6 +615,8 @@ fun CurriculumTab(courseId: String, viewModel: MainViewModel, isEditable: Boolea
 
     if (showAddModule && isEditable) {
         var moduleTitle by remember { mutableStateOf("") }
+        var isAdding by remember { mutableStateOf(false) }
+        
         AlertDialog(
             onDismissRequest = { showAddModule = false },
             title = { Text("New Module") },
@@ -607,10 +624,14 @@ fun CurriculumTab(courseId: String, viewModel: MainViewModel, isEditable: Boolea
                 OutlinedTextField(value = moduleTitle, onValueChange = { moduleTitle = it }, label = { Text("Module Title") })
             },
             confirmButton = {
-                Button(onClick = { 
-                    viewModel.addModule(courseId, moduleTitle, modules.size)
-                    showAddModule = false 
-                }) { Text("Add") }
+                Button(
+                    enabled = !isAdding && moduleTitle.isNotBlank(),
+                    onClick = { 
+                        isAdding = true
+                        viewModel.addModule(courseId, moduleTitle, modules.size)
+                        showAddModule = false 
+                    }
+                ) { Text("Add") }
             },
             dismissButton = {
                 TextButton(onClick = { showAddModule = false }) { Text("Cancel") }
@@ -677,6 +698,8 @@ fun ModuleManagementItem(module: Module, viewModel: MainViewModel, isEditable: B
     if (showAddLesson && isEditable) {
         var lessonTitle by remember { mutableStateOf("") }
         var videoUrl by remember { mutableStateOf("") }
+        var isAdding by remember { mutableStateOf(false) }
+        
         AlertDialog(
             onDismissRequest = { showAddLesson = false },
             title = { Text("New Lesson") },
@@ -688,10 +711,14 @@ fun ModuleManagementItem(module: Module, viewModel: MainViewModel, isEditable: B
                 }
             },
             confirmButton = {
-                Button(onClick = { 
-                    viewModel.addLesson(module.id, module.courseId, lessonTitle, videoUrl, lessons.size)
-                    showAddLesson = false 
-                }) { Text("Add") }
+                Button(
+                    enabled = !isAdding && lessonTitle.isNotBlank() && videoUrl.isNotBlank(),
+                    onClick = { 
+                        isAdding = true
+                        viewModel.addLesson(module.id, module.courseId, lessonTitle, videoUrl, lessons.size)
+                        showAddLesson = false 
+                    }
+                ) { Text("Add") }
             },
             dismissButton = {
                 TextButton(onClick = { showAddLesson = false }) { Text("Cancel") }
@@ -768,7 +795,14 @@ fun ForumTab(courseId: String, viewModel: MainViewModel) {
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text(topic.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                val isAnnouncement = topic.title.startsWith("[Announcement]")
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (isAnnouncement) {
+                                        Icon(Icons.Default.Campaign, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                    Text(topic.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (isAnnouncement) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(topic.content, fontSize = 13.sp, color = Color.Gray, maxLines = 2)
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -836,32 +870,26 @@ fun ForumPostDetail(topic: ForumTopic, viewModel: MainViewModel, onBack: () -> U
         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(topic.title, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                Text("Posted by ${topic.userName}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(topic.content, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(topic.content, fontSize = 15.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Posted by ${topic.userName}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         }
-        
+
         Text("Replies (${topicReplies.size})", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
         
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(topicReplies) { reply ->
                 Card(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(modifier = Modifier.size(24.dp).background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) {
-                                Text(reply.userName.take(1).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(reply.userName, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(reply.text, fontSize = 13.sp)
+                        Text(reply.userName, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(reply.text, fontSize = 14.sp)
                     }
                 }
             }
         }
-        
+
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
             OutlinedTextField(
                 value = replyText,
@@ -886,40 +914,178 @@ fun ForumPostDetail(topic: ForumTopic, viewModel: MainViewModel, onBack: () -> U
 @Composable
 fun AnnouncementsTab(courseId: String, viewModel: MainViewModel) {
     val user by viewModel.userProfile.collectAsState()
-    val isProfessor = user?.role == "professor"
+    val courses by viewModel.courses.collectAsState()
+    val announcements by viewModel.notifications.collectAsState()
+    val topics by viewModel.forumTopics.collectAsState()
+    
+    val course = courses.find { it.id == courseId } ?: return
+    val courseAnnouncements = announcements[courseId] ?: emptyList()
+    val courseTopics = topics[courseId] ?: emptyList()
+    val isOwner = course.createdByUserId == user?.id
+    
     var text by remember { mutableStateOf("") }
+    var selectedAnnouncementTopic by remember { mutableStateOf<ForumTopic?>(null) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-        if (isProfessor) {
-            Text("Send New Announcement", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("Message to all students") },
-                modifier = Modifier.fillMaxWidth().height(150.dp),
-                shape = RoundedCornerShape(16.dp)
-            )
-            Button(
-                onClick = { 
-                    viewModel.sendClassNotification(courseId, "Class Announcement", text)
-                    text = ""
-                }, 
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                enabled = text.isNotBlank()
-            ) {
-                Icon(Icons.Default.NotificationsActive, null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Broadcast Now", fontWeight = FontWeight.Bold)
-            }
-        } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Lock, null, modifier = Modifier.size(64.dp), tint = Color.Gray.copy(alpha = 0.3f))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Only Professors can send announcements.", color = Color.Gray, textAlign = TextAlign.Center)
+    LaunchedEffect(courseId) { viewModel.loadCourseManagementData(courseId) }
+
+    if (selectedAnnouncementTopic != null) {
+        ForumPostDetail(selectedAnnouncementTopic!!, viewModel) { selectedAnnouncementTopic = null }
+    } else {
+        Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+            if (isOwner) {
+                Text("Send New Announcement", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Message to all students") },
+                    modifier = Modifier.fillMaxWidth().height(120.dp),
+                    shape = RoundedCornerShape(16.dp)
+                )
+                Button(
+                    onClick = { 
+                        viewModel.sendClassNotification(courseId, "Class Announcement", text)
+                        text = ""
+                    }, 
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    enabled = text.isNotBlank()
+                ) {
+                    Icon(Icons.Default.Campaign, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Broadcast to Class", fontWeight = FontWeight.Bold)
                 }
+                
+                HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp))
+            }
+
+            Text("Announcement History", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            if (courseAnnouncements.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("No announcements yet.", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(courseAnnouncements.sortedByDescending { it.createdAt }) { announcement ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).clickable {
+                                announcement.forumTopicId?.let { topicId ->
+                                    val existingTopic = courseTopics.find { it.id == topicId }
+                                    if (existingTopic != null) {
+                                        selectedAnnouncementTopic = existingTopic
+                                    } else {
+                                        // FALLBACK: construct a minimal topic object 
+                                        selectedAnnouncementTopic = ForumTopic(
+                                            id = topicId,
+                                            courseId = courseId,
+                                            userName = "Professor",
+                                            title = announcement.title,
+                                            content = announcement.content
+                                        )
+                                    }
+                                }
+                            },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Campaign, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(announcement.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(announcement.content, fontSize = 14.sp)
+                                
+                                Row(modifier = Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        android.text.format.DateUtils.getRelativeTimeSpanString(announcement.createdAt).toString(),
+                                        fontSize = 11.sp,
+                                        color = Color.Gray,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text("View Discussion", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatTab(courseId: String, viewModel: MainViewModel) {
+    val user by viewModel.userProfile.collectAsState()
+    val chatMessages by viewModel.courseChats.collectAsState()
+    val messages = chatMessages[courseId] ?: emptyList()
+    var messageText by remember { mutableStateOf("") }
+
+    LaunchedEffect(courseId) { viewModel.loadCourseManagementData(courseId) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Class Group Chat", fontWeight = FontWeight.Black, fontSize = 20.sp, modifier = Modifier.padding(bottom = 16.dp))
+        
+        LazyColumn(modifier = Modifier.weight(1f), reverseLayout = false) {
+            items(messages) { message ->
+                val isMe = message.userId == user?.id
+                val decodedText = String(android.util.Base64.decode(message.encryptedText, android.util.Base64.DEFAULT))
+                
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+                ) {
+                    if (!isMe) {
+                        Text(
+                            "${message.userName} (${message.userRole})", 
+                            fontSize = 11.sp, 
+                            fontWeight = FontWeight.Bold,
+                            color = if (message.userRole == "professor") MaterialTheme.colorScheme.primary else Color.Gray,
+                            modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
+                        )
+                    }
+                    
+                    Surface(
+                        color = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isMe) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape = RoundedCornerShape(
+                            topStart = 16.dp, 
+                            topEnd = 16.dp, 
+                            bottomStart = if (isMe) 16.dp else 0.dp, 
+                            bottomEnd = if (isMe) 0.dp else 16.dp
+                        )
+                    ) {
+                        Text(decodedText, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+        
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
+            OutlinedTextField(
+                value = messageText,
+                onValueChange = { messageText = it },
+                placeholder = { Text("Type an encrypted message...") },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(24.dp),
+                maxLines = 3
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            IconButton(
+                onClick = { 
+                    if (messageText.isNotBlank()) {
+                        viewModel.sendChatMessage(courseId, messageText)
+                        messageText = ""
+                    }
+                },
+                modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
+                enabled = messageText.isNotBlank()
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.White)
             }
         }
     }

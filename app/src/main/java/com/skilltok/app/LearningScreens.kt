@@ -61,30 +61,31 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
     val context = LocalContext.current
     val courses by viewModel.courses.collectAsState()
     
-    var lesson by remember(lessonId) { 
-        mutableStateOf(MockData.lessons.find { it.id == lessonId || FirebaseRepository.getMockId(it.id) == lessonId })
-    }
-    
-    var isLoading by remember { mutableStateOf(lesson == null) }
+    var lesson by remember(lessonId) { mutableStateOf<Lesson?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(lessonId, courses) {
-        if (lesson == null) {
-            isLoading = true
-            var foundLesson: Lesson? = null
-            for (course in courses) {
-                val modules = viewModel.getCourseModules(course.id).first()
-                for (module in modules) {
-                    val lessons = viewModel.getModuleLessons(module.id).first()
-                    val found = lessons.find { it.id == lessonId }
-                    if (found != null) {
-                        foundLesson = found
-                        break
+        viewModel.getLesson(lessonId).collect { found ->
+            if (found != null) {
+                lesson = found
+                isLoading = false
+            } else if (courses.isNotEmpty()) {
+                var foundLesson: Lesson? = null
+                for (course in courses) {
+                    val modules = viewModel.getCourseModules(course.id).first()
+                    for (module in modules) {
+                        val lessons = viewModel.getModuleLessons(module.id).first()
+                        val match = lessons.find { it.id == lessonId }
+                        if (match != null) {
+                            foundLesson = match
+                            break
+                        }
                     }
+                    if (foundLesson != null) break
                 }
-                if (foundLesson != null) break
+                lesson = foundLesson
+                isLoading = false
             }
-            lesson = foundLesson
-            isLoading = false
         }
     }
 
@@ -712,6 +713,8 @@ fun YouTubePlayer(
     var videoProgress by remember { mutableFloatStateOf(0f) }
     
     val html = remember(videoId) {
+        // SECURITY: Sanitize videoId to prevent XSS
+        val sId = videoId.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
         """
         <!DOCTYPE html>
         <html>
@@ -727,7 +730,7 @@ fun YouTubePlayer(
         <body>
             <div class="container">
                 <iframe id="player"
-                    src="https://www.youtube-nocookie.com/embed/$videoId?autoplay=0&mute=0&controls=0&modestbranding=1&rel=0&showinfo=0&loop=1&playlist=$videoId&playsinline=1&enablejsapi=1&origin=https://www.youtube-nocookie.com&iv_load_policy=3" 
+                    src="https://www.youtube-nocookie.com/embed/$sId?autoplay=0&mute=0&controls=0&modestbranding=1&rel=0&showinfo=0&loop=1&playlist=$sId&playsinline=1&enablejsapi=1&origin=https://www.youtube-nocookie.com&iv_load_policy=3"
                     allow="autoplay; encrypted-media" 
                     allowfullscreen>
                 </iframe>
@@ -885,9 +888,15 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
     var score by remember { mutableIntStateOf(0) }
     var isFinished by remember { mutableStateOf(false) }
 
-    val questions = MockData.quizQuestions.filter { it.lessonId == lessonId }
+    val questionsFlow = remember(lessonId) { viewModel.repository.getLessonQuizzes(lessonId) }
+    val questions by questionsFlow.collectAsState(initial = emptyList())
 
-    if (questions.isEmpty()) return
+    if (questions.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
 
     if (isFinished) {
         QuizResultScreen(score = score, total = questions.size) {
@@ -901,10 +910,10 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Progress", fontWeight = FontWeight.Bold) },
+                title = { Text("Lesson Quiz", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -939,8 +948,12 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 Surface(
                     onClick = { 
                         if (!isSubmitted) {
-                            selectedOptionIndexes.clear()
-                            selectedOptionIndexes.add(index)
+                            if (currentQuestion.type == "single") {
+                                selectedOptionIndexes.clear()
+                                selectedOptionIndexes.add(index)
+                            } else {
+                                if (isSelected) selectedOptionIndexes.remove(index) else selectedOptionIndexes.add(index)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -963,7 +976,7 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
             if (isSubmitted) {
                 Spacer(modifier = Modifier.height(24.dp))
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), shape = RoundedCornerShape(16.dp)) {
-                    Text(currentQuestion.explanation, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                    Text(currentQuestion.explanation.ifBlank { "Great job! This was the correct answer based on the lesson content." }, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                 }
             }
 
@@ -973,7 +986,8 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 onClick = {
                     if (!isSubmitted) {
                         isSubmitted = true
-                        if (currentQuestion.correctAnswerIndexes.all { selectedOptionIndexes.contains(it) }) score++
+                        val correct = currentQuestion.correctAnswerIndexes.sorted() == selectedOptionIndexes.sorted()
+                        if (correct) score++
                     } else {
                         if (currentQuestionIndex < questions.size - 1) {
                             currentQuestionIndex++; selectedOptionIndexes.clear(); isSubmitted = false
