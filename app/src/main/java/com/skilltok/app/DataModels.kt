@@ -16,7 +16,10 @@ data class User(
     val interests: List<String> = emptyList(),
     val goals: List<String> = emptyList(),
     val onboardingCompleted: Boolean = false,
-    val savedVideosCount: Int = 0
+    val savedVideosCount: Int = 0,
+    val fcmToken: String = "",
+    val emailNotificationsEnabled: Boolean = true,
+    val pushNotificationsEnabled: Boolean = true
 )
 
 data class Course(

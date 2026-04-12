@@ -25,6 +25,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val auth = FirebaseAuth.getInstance()
     private val db = SkillTokDatabase.getDatabase(application).dao()
     private val soundManager = SoundManager(application)
+    private val notificationHelper = NotificationHelper(application)
 
     private val _courses = MutableStateFlow<List<Course>>(emptyList())
     val courses: StateFlow<List<Course>> = _courses.asStateFlow()
@@ -108,6 +109,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadCourses()
         observeAuthState()
         observeLeaderboard()
+        setupNotificationObservers()
+    }
+
+    private fun setupNotificationObservers() {
+        // Observe Announcements (Course Notifications)
+        viewModelScope.launch {
+            _notifications.collect { notificationsMap ->
+                val currentUserId = auth.currentUser?.uid ?: return@collect
+                notificationsMap.forEach { (courseId, list) ->
+                    val latest = list.maxByOrNull { it.createdAt }
+                    // Only notify for very recent ones (last 30 seconds) to avoid notification spam on load
+                    if (latest != null && (System.currentTimeMillis() - latest.createdAt) < 30000) {
+                        notificationHelper.showNotification(
+                            "New Announcement",
+                            latest.title
+                        )
+                    }
+                }
+            }
+        }
+
+        // Observe Forum Replies
+        viewModelScope.launch {
+            _forumReplies.collect { repliesMap ->
+                val currentUserId = auth.currentUser?.uid ?: return@collect
+                repliesMap.forEach { (topicId, list) ->
+                    val latest = list.maxByOrNull { it.createdAt }
+                    if (latest != null && latest.userId != currentUserId && (System.currentTimeMillis() - latest.createdAt) < 30000) {
+                        notificationHelper.showNotification(
+                            "New Forum Reply",
+                            "${latest.userName} replied to a topic you're watching"
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun loadCourses() {
@@ -228,6 +265,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         if (newLevel > profile.level) {
             _levelUpEvent.emit(newLevel)
+            notificationHelper.showNotification(
+                "Level Up!",
+                "Congratulations! You reached Level $newLevel"
+            )
         }
     }
 
@@ -281,7 +322,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (activeCommentJobs.containsKey(lessonId)) return
         activeCommentJobs[lessonId] = viewModelScope.launch {
             db.getComments(lessonId).collect { locals ->
+                val currentUserId = auth.currentUser?.uid
+                val previousList = _comments.value[lessonId] ?: emptyList()
+                
                 _comments.value += (lessonId to locals.map { ReelComment(it.id, it.lessonId, it.userId, it.userName, it.text, it.createdAt) })
+                
+                // Notify if a new comment from someone else appeared
+                if (previousList.isNotEmpty()) {
+                    val newComment = locals.maxByOrNull { it.createdAt }
+                    if (newComment != null && newComment.userId != currentUserId && (System.currentTimeMillis() - newComment.createdAt) < 5000) {
+                        notificationHelper.showNotification(
+                            "New Comment",
+                            "${newComment.userName}: ${newComment.text}"
+                        )
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -404,6 +459,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.addNotification(notification)
             soundManager.playCommentSound()
             loadCourseManagementData(courseId)
+            
+            notificationHelper.showNotification(
+                "Announcement Sent",
+                "Your announcement '$title' is now live."
+            )
         }
     }
 
@@ -437,6 +497,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.updateUserProfile(updated)
             db.insertUserProfile(LocalUserEntity(id = updated.id, name = updated.name, email = updated.email, xp = updated.xp, streak = updated.streak, level = updated.level))
             awardXP(20)
+            notificationHelper.showNotification("Welcome!", "You've successfully set up your profile.")
         }
     }
 
@@ -480,6 +541,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 soundManager.playEnrollSound()
                 _enrollmentState.value = EnrollmentState.Success(courseId)
                 awardXP(10)
+                
+                val course = _courses.value.find { it.id == courseId }
+                notificationHelper.showNotification(
+                    "Enrolled!",
+                    "You've successfully joined ${course?.title ?: "the course"}"
+                )
             } catch (e: Exception) {
                 _enrollmentState.value = EnrollmentState.Error(e.message ?: "Enrollment failed")
             }
@@ -560,6 +627,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             loadCourses()
             awardXP(100)
+            notificationHelper.showNotification("Course Created", "Your course '$title' has been published.")
         }
     }
 

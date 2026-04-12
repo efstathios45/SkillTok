@@ -31,7 +31,24 @@ data class LocalCourseEntity(
     val level: String
 )
 
-@Entity(tableName = "local_enrollments")
+@Entity(
+    tableName = "local_enrollments",
+    foreignKeys = [
+        ForeignKey(
+            entity = LocalUserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = LocalCourseEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["courseId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("userId"), Index("courseId")]
+)
 data class LocalEnrollmentEntity(
     @PrimaryKey val id: String, // userId_courseId
     val userId: String,
@@ -41,7 +58,18 @@ data class LocalEnrollmentEntity(
     val currentLessonId: String
 )
 
-@Entity(tableName = "local_lesson_completions")
+@Entity(
+    tableName = "local_lesson_completions",
+    foreignKeys = [
+        ForeignKey(
+            entity = LocalUserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("userId")]
+)
 data class LocalCompletionEntity(
     @PrimaryKey(autoGenerate = true) val localId: Int = 0,
     val userId: String,
@@ -50,7 +78,18 @@ data class LocalCompletionEntity(
     val synced: Boolean = false
 )
 
-@Entity(tableName = "local_interactions")
+@Entity(
+    tableName = "local_interactions",
+    foreignKeys = [
+        ForeignKey(
+            entity = LocalUserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("userId")]
+)
 data class LocalInteractionEntity(
     @PrimaryKey val id: String, // userId_lessonId
     val userId: String,
@@ -59,7 +98,18 @@ data class LocalInteractionEntity(
     val synced: Boolean = false
 )
 
-@Entity(tableName = "local_comments")
+@Entity(
+    tableName = "local_comments",
+    foreignKeys = [
+        ForeignKey(
+            entity = LocalUserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("userId")]
+)
 data class LocalCommentEntity(
     @PrimaryKey val id: String,
     val lessonId: String,
@@ -69,7 +119,18 @@ data class LocalCommentEntity(
     val createdAt: Long
 )
 
-@Entity(tableName = "local_saved")
+@Entity(
+    tableName = "local_saved",
+    foreignKeys = [
+        ForeignKey(
+            entity = LocalUserEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("userId")]
+)
 data class LocalSavedEntity(
     @PrimaryKey val id: String, // userId_lessonId
     val userId: String,
@@ -135,7 +196,7 @@ interface SkillTokDao {
 
 @Database(
     entities = [LocalUserEntity::class, LocalCourseEntity::class, LocalEnrollmentEntity::class, LocalCompletionEntity::class, LocalInteractionEntity::class, LocalCommentEntity::class, LocalSavedEntity::class], 
-    version = 8, // Bumping version for role field
+    version = 9, // Bumping version for foreign keys addition
     exportSchema = false
 )
 abstract class SkillTokDatabase : RoomDatabase() {

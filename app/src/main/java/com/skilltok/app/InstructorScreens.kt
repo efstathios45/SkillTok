@@ -97,9 +97,9 @@ fun CreateCourseScreen(navController: NavHostController, viewModel: MainViewMode
                         }
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 OutlinedTextField(
                     value = thumbnailUrl,
                     onValueChange = { thumbnailUrl = it },
@@ -109,9 +109,9 @@ fun CreateCourseScreen(navController: NavHostController, viewModel: MainViewMode
                     shape = RoundedCornerShape(12.dp),
                     leadingIcon = { Icon(Icons.Default.Link, null) }
                 )
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -119,9 +119,9 @@ fun CreateCourseScreen(navController: NavHostController, viewModel: MainViewMode
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -129,9 +129,9 @@ fun CreateCourseScreen(navController: NavHostController, viewModel: MainViewMode
                     modifier = Modifier.fillMaxWidth().height(100.dp),
                     shape = RoundedCornerShape(12.dp)
                 )
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 Text("Category", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 FlowRow(modifier = Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     subjects.forEach { s ->
@@ -142,9 +142,9 @@ fun CreateCourseScreen(navController: NavHostController, viewModel: MainViewMode
                         )
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(32.dp))
-                
+
                 Button(
                     onClick = { step = "modules" },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -409,7 +409,7 @@ fun ProfessorDashboard(viewModel: MainViewModel, navController: NavHostControlle
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 items(myCourses) { course ->
-                    ProfessorCourseCard(course, onClick = { 
+                    ProfessorCourseCard(course, onClick = {
                         navController.navigate("course_management/${course.id}")
                     })
                 }
@@ -491,15 +491,15 @@ fun CourseManagementScreen(courseId: String, viewModel: MainViewModel, navContro
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             ScrollableTabRow(
-                selectedTabIndex = selectedTabIndex.coerceIn(0, tabs.size - 1), 
-                edgePadding = 16.dp, 
+                selectedTabIndex = selectedTabIndex.coerceIn(0, tabs.size - 1),
+                edgePadding = 16.dp,
                 containerColor = MaterialTheme.colorScheme.background
             ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(selected = selectedTabIndex == index, onClick = { selectedTabIndex = index }, text = { Text(title) })
                 }
             }
-            
+
             val currentTab = tabs.getOrNull(selectedTabIndex) ?: tabs.firstOrNull() ?: ""
             when (currentTab) {
                 "Analytics" -> AnalyticsTab(courseId, viewModel)
@@ -519,7 +519,7 @@ fun DetailsTab(course: Course, viewModel: MainViewModel, isEditable: Boolean = t
     var description by remember { mutableStateOf(course.description) }
     var thumbnailUrl by remember { mutableStateOf(course.thumbnailUrl) }
     var subject by remember { mutableStateOf(course.subject) }
-    
+
     val subjects = listOf("Technology", "Design", "Business", "Marketing", "Science", "Psychology")
 
     Column(modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
@@ -922,7 +922,7 @@ fun AnnouncementsTab(courseId: String, viewModel: MainViewModel) {
     val courseAnnouncements = announcements[courseId] ?: emptyList()
     val courseTopics = topics[courseId] ?: emptyList()
     val isOwner = course.createdByUserId == user?.id
-    
+
     var text by remember { mutableStateOf("") }
     var selectedAnnouncementTopic by remember { mutableStateOf<ForumTopic?>(null) }
 
@@ -976,7 +976,7 @@ fun AnnouncementsTab(courseId: String, viewModel: MainViewModel) {
                                     if (existingTopic != null) {
                                         selectedAnnouncementTopic = existingTopic
                                     } else {
-                                        // FALLBACK: construct a minimal topic object 
+                                        // FALLBACK: construct a minimal topic object
                                         selectedAnnouncementTopic = ForumTopic(
                                             id = topicId,
                                             courseId = courseId,

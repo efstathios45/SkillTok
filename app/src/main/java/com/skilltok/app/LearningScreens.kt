@@ -23,6 +23,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -52,6 +54,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -116,7 +119,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { 
+                title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(course?.title ?: "Course", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         Text(lesson?.title ?: "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -142,20 +145,20 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
 
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(lesson!!.title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     course?.let { CourseBadge(it.subject) }
                     CourseBadge("${lesson!!.durationSeconds / 60}m")
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 Text(lesson!!.description, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 24.sp, fontSize = 15.sp)
-                
+
                 Spacer(modifier = Modifier.height(32.dp))
-                
+
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(20.dp),
@@ -173,14 +176,14 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                         Text("• Apply these insights to real-world scenarios for better retention.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(40.dp))
-                
+
                 val isCompleted by viewModel.completedLessons.collectAsState()
                 val isAlreadyDone = isCompleted.contains(lesson!!.id)
 
                 Button(
-                    onClick = { 
+                    onClick = {
                         viewModel.completeLesson(lesson!!.id)
                         if (!isAlreadyDone) Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
                     },
@@ -194,7 +197,7 @@ fun LessonPlayerScreen(lessonId: String, navController: NavHostController, viewM
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(if (isAlreadyDone) "Completed" else "Mark as Complete", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
-                
+
                 if (lesson!!.hasQuiz) {
                     OutlinedButton(
                         onClick = { navController.navigate("quiz/${lesson!!.id}") },
@@ -220,7 +223,7 @@ fun ReelsPlayerScreen(
     onMenuClick: () -> Unit = {}
 ) {
     val courses by viewModel.courses.collectAsState()
-    
+
     val course = remember(courses, courseId) {
         courses.find { it.id == courseId || FirebaseRepository.getMockId(it.id) == courseId }
     }
@@ -369,12 +372,15 @@ fun ReelItem(
     val comments by viewModel.comments.collectAsState()
     val lessonComments = comments[lesson.id] ?: emptyList()
     var showComments by remember { mutableStateOf(false) }
+    var quickCommentText by remember { mutableStateOf("") }
 
     val infiniteTransition = rememberInfiniteTransition(label = "disc")
     val discRotation by infiniteTransition.animateFloat(
         initialValue = 0f, targetValue = 360f,
         animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing)), label = "discRotation"
     )
+
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = Modifier.fillMaxSize()) {
         YouTubePlayer(
@@ -445,156 +451,206 @@ fun ReelItem(
             )
         ))
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(24.dp)
-                .padding(bottom = 32.dp)
-                .fillMaxWidth(0.82f)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box {
-                    Box(modifier = Modifier.size(40.dp).background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
-                        Text(course.subject.take(1), color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+        // Adjust UI for Landscape
+        Row(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .weight(if (isLandscape) 0.65f else 1f)
+                    .align(Alignment.Bottom)
+                    .padding(24.dp)
+                    .padding(bottom = if (isLandscape) 0.dp else 32.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        Box(modifier = Modifier.size(40.dp).background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
+                            Text(course.subject.take(1), color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                        }
+                        if (!isEnrolled) {
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = 2.dp, y = 2.dp)
+                                    .background(Color.White, CircleShape)
+                                    .clickable {
+                                        viewModel.enrollInCourse(course.id, lesson.id)
+                                        soundManager.playEnrollSound()
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Add, null, tint = AppColors.Primary, modifier = Modifier.size(14.dp))
+                            }
+                        }
                     }
-                    if (!isEnrolled) {
-                        Box(
-                            modifier = Modifier
-                                .size(18.dp)
-                                .align(Alignment.BottomEnd)
-                                .offset(x = 2.dp, y = 2.dp)
-                                .background(Color.White, CircleShape)
-                                .clickable {
-                                    viewModel.enrollInCourse(course.id, lesson.id)
-                                    soundManager.playEnrollSound()
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                },
-                            contentAlignment = Alignment.Center
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Text(course.subject, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(lesson.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                if (!isLandscape) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(lesson.description, color = Color.White.copy(alpha = 0.88f), fontSize = 15.sp, maxLines = 2, lineHeight = 22.sp)
+                }
+                
+                Spacer(modifier = Modifier.height(if (isLandscape) 12.dp else 24.dp))
+                
+                val isCompleted by viewModel.completedLessons.collectAsState()
+                val isAlreadyDone = isCompleted.contains(lesson.id)
+
+                // Direct Commenting
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BasicTextField(
+                        value = quickCommentText,
+                        onValueChange = { quickCommentText = it },
+                        modifier = Modifier.weight(1f),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
+                        decorationBox = { innerTextField ->
+                            if (quickCommentText.isEmpty()) Text("Comment...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
+                            innerTextField()
+                        }
+                    )
+                    if (quickCommentText.isNotBlank()) {
+                        IconButton(
+                            onClick = { 
+                                viewModel.addComment(lesson.id, quickCommentText)
+                                quickCommentText = ""
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            modifier = Modifier.size(24.dp)
                         ) {
-                            Icon(Icons.Default.Add, null, tint = AppColors.Primary, modifier = Modifier.size(14.dp))
+                            Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.White, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
-                Spacer(modifier = Modifier.width(14.dp))
-                Text(course.subject, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            Text(lesson.title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(lesson.description, color = Color.White.copy(alpha = 0.88f), fontSize = 15.sp, maxLines = 2, lineHeight = 22.sp)
-            
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            val isCompleted by viewModel.completedLessons.collectAsState()
-            val isAlreadyDone = isCompleted.contains(lesson.id)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    onClick = { 
-                        viewModel.completeLesson(lesson.id)
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (!isAlreadyDone) Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.weight(1f).height(52.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isAlreadyDone) Color(0xFF10B981) else AppColors.Primary
-                    ),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Icon(if (isAlreadyDone) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked, null, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (isAlreadyDone) "Completed" else "Complete", fontWeight = FontWeight.Bold)
-                }
-                
-                if (lesson.hasQuiz) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
-                        onClick = { navController.navigate("quiz/${lesson.id}") },
-                        modifier = Modifier.height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
+                        onClick = { 
+                            viewModel.completeLesson(lesson.id)
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (!isAlreadyDone) Toast.makeText(context, "Lesson Completed! +25 XP", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.weight(1f).height(if (isLandscape) 44.dp else 52.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isAlreadyDone) Color(0xFF10B981) else AppColors.Primary
+                        ),
                         shape = RoundedCornerShape(14.dp)
                     ) {
-                        Icon(Icons.Default.Quiz, null, modifier = Modifier.size(20.dp))
+                        Icon(if (isAlreadyDone) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked, null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Quiz", fontWeight = FontWeight.Bold)
+                        Text(if (isAlreadyDone) "Completed" else "Complete", fontWeight = FontWeight.Bold)
+                    }
+                    
+                    if (lesson.hasQuiz) {
+                        Button(
+                            onClick = { navController.navigate("quiz/${lesson.id}") },
+                            modifier = Modifier.height(if (isLandscape) 44.dp else 52.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.Quiz, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Quiz", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
-        }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 40.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(22.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Right side actions for landscape
+            Column(
+                modifier = Modifier
+                    .weight(if (isLandscape) 0.35f else 0.001f)
+                    .fillMaxHeight()
+                    .padding(end = 16.dp, bottom = 40.dp, top = 60.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(if (isLandscape) 12.dp else 22.dp)
+            ) {
+                if (isLandscape) {
+                    Text(lesson.description, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, maxLines = 4, modifier = Modifier.padding(bottom = 8.dp))
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    InteractionItem(
+                        icon = Icons.Default.Favorite, 
+                        label = "",
+                        isActive = isLiked, 
+                        activeColor = Color.Red,
+                        onClick = { 
+                            viewModel.toggleLike(lesson.id)
+                            soundManager.playLikeSound()
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                    )
+                    Text(lesson.likeCount.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
                 InteractionItem(
-                    icon = Icons.Default.Favorite, 
-                    label = "",
-                    isActive = isLiked, 
-                    activeColor = Color.Red,
+                    icon = Icons.AutoMirrored.Filled.Comment, 
+                    label = if (lessonComments.isEmpty()) "Chat" else lessonComments.size.toString(),
                     onClick = { 
-                        viewModel.toggleLike(lesson.id)
-                        soundManager.playLikeSound()
+                        showComments = true 
+                        viewModel.loadComments(lesson.id)
+                    }
+                )
+                InteractionItem(
+                    icon = if (isMutedGlobal) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    label = if (isMutedGlobal) "Muted" else "Mute",
+                    isActive = isMutedGlobal,
+                    activeColor = AppColors.Primary,
+                    onClick = { onMuteToggle(!isMutedGlobal) }
+                )
+                InteractionItem(
+                    icon = Icons.Default.Bookmark, 
+                    label = if (isSaved) "Saved" else "Save",
+                    isActive = isSaved, 
+                    activeColor = Color(0xFFFFD700),
+                    onClick = { 
+                        viewModel.toggleSave(lesson.id)
+                        soundManager.playSaveSound()
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
                 )
-                Text(lesson.likeCount.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-            InteractionItem(
-                icon = Icons.AutoMirrored.Filled.Comment, 
-                label = if (lessonComments.isEmpty()) "Chat" else lessonComments.size.toString(),
-                onClick = { 
-                    showComments = true 
-                    viewModel.loadComments(lesson.id)
+                InteractionItem(
+                    icon = Icons.Default.Share, 
+                    label = "Share",
+                    onClick = { 
+                        Toast.makeText(context, "Shared!", Toast.LENGTH_SHORT).show()
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                )
+                
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .padding(4.dp)
+                        .rotate(discRotation)
+                        .border(2.dp, Color.White.copy(alpha = 0.3f), CircleShape)
+                        .padding(2.dp)
+                        .clip(CircleShape)
+                        .background(AppColors.PrimaryGradient),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.School, null, tint = Color.White, modifier = Modifier.size(20.dp))
                 }
-            )
-            InteractionItem(
-                icon = if (isMutedGlobal) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                label = if (isMutedGlobal) "Muted" else "Mute",
-                isActive = isMutedGlobal,
-                activeColor = AppColors.Primary,
-                onClick = { onMuteToggle(!isMutedGlobal) }
-            )
-            InteractionItem(
-                icon = Icons.Default.Bookmark, 
-                label = if (isSaved) "Saved" else "Save", 
-                isActive = isSaved, 
-                activeColor = Color(0xFFFFD700),
-                onClick = { 
-                    viewModel.toggleSave(lesson.id)
-                    soundManager.playSaveSound()
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
-            )
-            InteractionItem(
-                icon = Icons.Default.Share, 
-                label = "Share",
-                onClick = { 
-                    Toast.makeText(context, "Shared!", Toast.LENGTH_SHORT).show()
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
-            )
-            
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .padding(4.dp)
-                    .rotate(discRotation)
-                    .border(2.dp, Color.White.copy(alpha = 0.3f), CircleShape)
-                    .padding(2.dp)
-                    .clip(CircleShape)
-                    .background(AppColors.PrimaryGradient),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.School, null, tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
+    }
 
-        if (showComments) {
+    if (showComments) {
+        ModalBottomSheet(
+            onDismissRequest = { showComments = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrimColor = Color.Black.copy(alpha = 0.6f)
+        ) {
             CommentsBottomSheet(
                 lessonId = lesson.id,
                 comments = lessonComments,
@@ -929,11 +985,11 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
             )
-            
+
             Spacer(modifier = Modifier.height(40.dp))
             Text(currentQuestion.questionText, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
             Spacer(modifier = Modifier.height(32.dp))
-            
+
             currentQuestion.options.forEachIndexed { index, option ->
                 val isSelected = selectedOptionIndexes.contains(index)
                 val isCorrect = currentQuestion.correctAnswerIndexes.contains(index)
@@ -946,7 +1002,7 @@ fun QuizScreen(lessonId: String, navController: NavHostController, viewModel: Ma
                 }
 
                 Surface(
-                    onClick = { 
+                    onClick = {
                         if (!isSubmitted) {
                             if (currentQuestion.type == "single") {
                                 selectedOptionIndexes.clear()

@@ -1,11 +1,16 @@
 package com.skilltok.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.Window
 import android.view.animation.OvershootInterpolator
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -43,18 +48,34 @@ import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 class MainActivity : AppCompatActivity() {
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        // Handle the permission result if needed
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Request no title feature BEFORE super.onCreate
         supportRequestWindowFeature(Window.FEATURE_NO_TITLE)
-        
+
         // Initialize the splash screen
         val splashScreen = installSplashScreen()
-        
+
         super.onCreate(savedInstanceState)
-        
+
         // Force hide any persistent action bars
         supportActionBar?.hide()
         actionBar?.hide()
+
+        // Ask for notification permission on Android 13+ (API 33)
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         enableEdgeToEdge()
         setContent {
@@ -100,7 +121,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: ""
 
@@ -137,7 +158,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
     val isLoggedIn = auth.currentUser != null && auth.currentUser?.isEmailVerified == true
     val isAppReady = isLoggedIn && currentRoute != "onboarding" && currentRoute != "auth"
     
-    val showBars = isAppReady && 
+    val showBars = isAppReady &&
                       currentRoute != "create_course" &&
                       !currentRoute.startsWith("course_management/") &&
                       !currentRoute.startsWith("lesson/") &&
@@ -157,7 +178,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                         Column(modifier = Modifier.padding(24.dp).statusBarsPadding()) {
                             Text("SkillTok", fontSize = 24.sp, fontWeight = FontWeight.Black, color = Color.White)
                             Text("Unlock Your Potential", fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
-                            
+
                             if (currentUser != null) {
                                 Spacer(modifier = Modifier.height(16.dp))
                                 LevelBadge(level = currentUser!!.level, xp = currentUser!!.xp, darkTheme = true)
@@ -168,7 +189,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     NavigationDrawerItem(
                         label = { Text("Home", fontSize = 14.sp, fontWeight = FontWeight.Medium) },
                         selected = currentRoute == "home",
-                        onClick = { 
+                        onClick = {
                             navController.navigate("home") { launchSingleTop = true }
                             scope.launch { drawerState.close() }
                         },
@@ -179,7 +200,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     NavigationDrawerItem(
                         label = { Text("Explore Skills", fontSize = 14.sp, fontWeight = FontWeight.Medium) },
                         selected = currentRoute == "courses",
-                        onClick = { 
+                        onClick = {
                             navController.navigate("courses") { launchSingleTop = true }
                             scope.launch { drawerState.close() }
                         },
@@ -200,7 +221,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                         NavigationDrawerItem(
                             label = { Text("Academy Dashboard", fontSize = 14.sp, fontWeight = FontWeight.Medium) },
                             selected = currentRoute == "professor_dashboard",
-                            onClick = { 
+                            onClick = {
                                 navController.navigate("professor_dashboard")
                                 scope.launch { drawerState.close() }
                             },
@@ -211,7 +232,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                         NavigationDrawerItem(
                             label = { Text("Launch New Course", fontSize = 14.sp, fontWeight = FontWeight.Medium) },
                             selected = currentRoute == "create_course",
-                            onClick = { 
+                            onClick = {
                                 navController.navigate("create_course")
                                 scope.launch { drawerState.close() }
                             },
@@ -225,7 +246,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     NavigationDrawerItem(
                         label = { Text("Account Settings", fontSize = 14.sp, fontWeight = FontWeight.Medium) },
                         selected = currentRoute == "settings",
-                        onClick = { 
+                        onClick = {
                             navController.navigate("settings")
                             scope.launch { drawerState.close() }
                         },
@@ -237,7 +258,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     NavigationDrawerItem(
                         label = { Text("Sign Out", color = MaterialTheme.colorScheme.error, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
                         selected = false,
-                        onClick = { 
+                        onClick = {
                             auth.signOut()
                             navController.navigate("auth") { popUpTo(0) }
                             scope.launch { drawerState.close() }
@@ -284,9 +305,9 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                         ) {
                                             Icon(
-                                                Icons.Default.LocalFireDepartment, 
-                                                null, 
-                                                tint = Color(0xFFFF4500), 
+                                                Icons.Default.LocalFireDepartment,
+                                                null,
+                                                tint = Color(0xFFFF4500),
                                                 modifier = Modifier.size(18.dp)
                                             )
                                             Spacer(Modifier.width(4.dp))
@@ -351,7 +372,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     popEnterTransition = { fadeIn(animationSpec = tween(300)) + slideInHorizontally(initialOffsetX = { -300 }) },
                     popExitTransition = { fadeOut(animationSpec = tween(300)) + slideOutHorizontally(targetOffsetX = { 300 }) }
                 ) {
-                    composable("auth") { 
+                    composable("auth") {
                         AuthScreen(viewModel = viewModel, onLoginSuccess = {
                             auth.currentUser?.let { user ->
                                 if (user.isEmailVerified) {
@@ -359,23 +380,23 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                                     else navController.navigate("home")
                                 }
                             }
-                        }) 
+                        })
                     }
                     composable("onboarding") { OnboardingScreen(navController, viewModel) }
                     composable("home") { HomeFeedScreen(navController, viewModel) }
                     composable("courses") { CoursesListScreen(navController, viewModel) }
                     composable("leaderboard") { LeaderboardScreen(navController, viewModel) }
-                    composable("profile") { 
+                    composable("profile") {
                         ProfileScreen(
                             user = currentUser,
-                            onLogout = { 
+                            onLogout = {
                                 auth.signOut()
                                 navController.navigate("auth") { popUpTo(0) }
                             },
                             onAddCourse = { navController.navigate("create_course") },
                             onSettingsClick = { navController.navigate("settings") },
                             navController = navController
-                        ) 
+                        )
                     }
                     composable("settings") { SettingsScreen(isDarkMode, onThemeToggle) { navController.popBackStack() } }
                     composable("my_courses") { LibraryScreen(navController, viewModel) }
@@ -384,14 +405,14 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     composable("create_course") { CreateCourseScreen(navController, viewModel) }
                     composable("professor_dashboard") { ProfessorDashboard(viewModel, navController) }
                     composable("course_management/{courseId}") { CourseManagementScreen(it.arguments?.getString("courseId") ?: "", viewModel, navController) }
-                    composable("reels/{courseId}/{lessonId}") { 
+                    composable("reels/{courseId}/{lessonId}") {
                         ReelsPlayerScreen(
-                            it.arguments?.getString("courseId") ?: "", 
-                            it.arguments?.getString("lessonId"), 
-                            navController, 
+                            it.arguments?.getString("courseId") ?: "",
+                            it.arguments?.getString("lessonId"),
+                            navController,
                             viewModel,
                             onMenuClick = { scope.launch { drawerState.open() } }
-                        ) 
+                        )
                     }
                     composable("lesson/{lessonId}") { LessonPlayerScreen(it.arguments?.getString("lessonId") ?: "", navController, viewModel) }
                     composable("quiz/{lessonId}") { QuizScreen(it.arguments?.getString("lessonId") ?: "", navController, viewModel) }
@@ -414,7 +435,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
 fun LevelBadge(level: Int, xp: Int, darkTheme: Boolean = false) {
     val progress = (xp % 100) / 100f
     val baseColor = if (darkTheme) Color.White else MaterialTheme.colorScheme.primary
-    
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -450,7 +471,7 @@ fun LevelBadge(level: Int, xp: Int, darkTheme: Boolean = false) {
 @Composable
 fun LibraryScreen(navController: NavHostController, viewModel: MainViewModel) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    
+
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TabRow(
             selectedTabIndex = selectedTab,
@@ -461,7 +482,7 @@ fun LibraryScreen(navController: NavHostController, viewModel: MainViewModel) {
             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Courses", fontWeight = FontWeight.Bold) })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Saved Reels", fontWeight = FontWeight.Bold) })
         }
-        
+
         if (selectedTab == 0) {
             MyCoursesScreen(navController, viewModel)
         } else {
@@ -487,7 +508,7 @@ fun LevelUpCelebration(level: Int) {
         contentAlignment = Alignment.Center
     ) {
         ConfettiEffect()
-        
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             val infiniteTransition = rememberInfiniteTransition(label = "levelup")
             val scale by infiniteTransition.animateFloat(
@@ -503,34 +524,34 @@ fun LevelUpCelebration(level: Int) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Stars, 
-                    null, 
-                    tint = Color.White, 
+                    Icons.Default.Stars,
+                    null,
+                    tint = Color.White,
                     modifier = Modifier.size(110.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(40.dp))
-            
+
             Text(
-                "LEVEL UP!", 
-                fontSize = 48.sp, 
-                fontWeight = FontWeight.Black, 
+                "LEVEL UP!",
+                fontSize = 48.sp,
+                fontWeight = FontWeight.Black,
                 color = Color.White,
                 letterSpacing = 4.sp
             )
-            
+
             Text(
-                "You are now Level $level", 
-                fontSize = 26.sp, 
-                fontWeight = FontWeight.ExtraBold, 
+                "You are now Level $level",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFFFACC15) // Gold
             )
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text(
-                "Your skills are reaching new heights!", 
+                "Your skills are reaching new heights!",
                 color = Color.White.copy(alpha = 0.8f),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium
@@ -542,7 +563,7 @@ fun LevelUpCelebration(level: Int) {
 @Composable
 fun ConfettiEffect() {
     val particles = remember { List(70) { ConfettiParticle() } }
-    
+
     particles.forEach { particle ->
         val infiniteTransition = rememberInfiniteTransition(label = "p")
         val yOffset by infiniteTransition.animateFloat(
@@ -553,7 +574,7 @@ fun ConfettiEffect() {
                 repeatMode = RepeatMode.Restart
             ), label = "y"
         )
-        
+
         val rotation by infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 720f,

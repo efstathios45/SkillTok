@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -148,13 +149,14 @@ fun OnboardingScreen(navController: NavHostController, viewModel: MainViewModel)
 fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
     val courses by viewModel.courses.collectAsState()
     val enrollments by viewModel.enrollments.collectAsState()
-    val pagerState = rememberPagerState(pageCount = { courses.size })
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     
     if (courses.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
     } else {
+        val pagerState = rememberPagerState(pageCount = { courses.size })
         VerticalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize().background(Color.Black)
@@ -179,38 +181,54 @@ fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
                     )
                 ))
                 
-                Column(
+                Row(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(24.dp)
-                        .padding(bottom = 80.dp)
+                        .padding(bottom = if (isLandscape) 0.dp else 80.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    CourseBadge(course.subject, color = Color.White)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(course.title, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, lineHeight = 38.sp)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(course.description, color = Color.White.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
-                    
-                    Spacer(modifier = Modifier.height(28.dp))
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = { navController.navigate("course_detail/${course.id}") },
-                            modifier = Modifier.height(52.dp).weight(1f),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Icon(if (isEnrolled) Icons.Default.PlayArrow else Icons.Default.AutoStories, null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (isEnrolled) "Continue Course" else "Unlock Course", fontWeight = FontWeight.ExtraBold)
+                    Column(modifier = Modifier.weight(if (isLandscape) 0.65f else 1f)) {
+                        CourseBadge(course.subject, color = Color.White)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(course.title, color = Color.White, fontSize = if (isLandscape) 24.sp else 32.sp, fontWeight = FontWeight.Black, lineHeight = if (isLandscape) 28.sp else 38.sp)
+                        if (!isLandscape) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(course.description, color = Color.White.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
                         }
                         
-                        IconButton(
-                            onClick = { /* share logic */ },
-                            modifier = Modifier.size(52.dp).background(Color.White.copy(alpha = 0.15f), CircleShape)
-                        ) {
-                            Icon(Icons.Default.Share, null, tint = Color.White)
+                        Spacer(modifier = Modifier.height(28.dp))
+                        
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = { navController.navigate("course_detail/${course.id}") },
+                                modifier = Modifier.height(if (isLandscape) 44.dp else 52.dp).weight(1f),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Icon(if (isEnrolled) Icons.Default.PlayArrow else Icons.Default.AutoStories, null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (isEnrolled) "Continue" else "Unlock", fontWeight = FontWeight.Bold)
+                            }
+                            
+                            IconButton(
+                                onClick = { /* share logic */ },
+                                modifier = Modifier.size(if (isLandscape) 44.dp else 52.dp).background(Color.White.copy(alpha = 0.15f), CircleShape)
+                            ) {
+                                Icon(Icons.Default.Share, null, tint = Color.White)
+                            }
                         }
+                    }
+                    if (isLandscape) {
+                        Spacer(Modifier.width(24.dp))
+                        Text(
+                            course.description, 
+                            color = Color.White.copy(alpha = 0.7f), 
+                            modifier = Modifier.weight(0.35f).padding(bottom = 8.dp),
+                            fontSize = 13.sp,
+                            maxLines = 5
+                        )
                     }
                 }
             }
@@ -220,6 +238,8 @@ fun HomeFeedScreen(navController: NavHostController, viewModel: MainViewModel) {
 
 @Composable
 fun CourseFeedItem(course: Course, onClick: () -> Unit) {
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -229,45 +249,56 @@ fun CourseFeedItem(course: Course, onClick: () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column {
-            Box(modifier = Modifier.height(180.dp).fillMaxWidth()) {
-                AsyncImage(
-                    model = course.thumbnailUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                Surface(
-                    modifier = Modifier.padding(16.dp).align(Alignment.TopStart),
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = course.subject,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+        if (isLandscape) {
+            Row(modifier = Modifier.height(140.dp)) {
+                Box(modifier = Modifier.width(200.dp).fillMaxHeight()) {
+                    AsyncImage(
+                        model = course.thumbnailUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
+                    Surface(
+                        modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
+                        color = Color.Black.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(text = course.subject, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Column(modifier = Modifier.padding(16.dp).weight(1f)) {
+                    Text(text = course.title, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.weight(1f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(14.dp))
+                        Text(text = " ${course.rating}  •  ${course.learnersCount} learners", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = course.title, 
-                    fontSize = 18.sp, 
-                    fontWeight = FontWeight.ExtraBold, 
-                    maxLines = 1, 
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(14.dp))
-                    Text(
-                        text = " ${course.rating}  •  ${course.learnersCount} learners", 
-                        fontSize = 12.sp, 
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            Column {
+                Box(modifier = Modifier.height(180.dp).fillMaxWidth()) {
+                    AsyncImage(
+                        model = course.thumbnailUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
+                    Surface(
+                        modifier = Modifier.padding(16.dp).align(Alignment.TopStart),
+                        color = Color.Black.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(text = course.subject, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = course.title, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Star, null, tint = Color(0xFFFFB800), modifier = Modifier.size(14.dp))
+                        Text(text = " ${course.rating}  •  ${course.learnersCount} learners", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
@@ -279,29 +310,34 @@ fun CoursesListScreen(navController: NavHostController, viewModel: MainViewModel
     val courses by viewModel.recommendedCourses.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     
     val categories = remember(courses) { listOf("All") + courses.map { it.subject }.distinct().sorted() }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
         Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-            Text("Discover Skills", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+            if (!isLandscape) {
+                Text("Discover Skills", fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
             
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search skills...") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search skills...") },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = MaterialTheme.colorScheme.onSurface, unfocusedTextColor = MaterialTheme.colorScheme.onSurface)
                 )
-            )
+                if (isLandscape) {
+                    Spacer(Modifier.width(16.dp))
+                    Text("Skills", fontSize = 20.sp, fontWeight = FontWeight.Black)
+                }
+            }
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (isLandscape) 8.dp else 16.dp))
             
             Row(
                 modifier = Modifier
@@ -331,7 +367,11 @@ fun CoursesListScreen(navController: NavHostController, viewModel: MainViewModel
                 Text("No courses found matching your criteria.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(modifier = Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+            LazyVerticalGrid(
+                columns = if (isLandscape) GridCells.Fixed(2) else GridCells.Fixed(1),
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
                 items(filteredCourses) { course ->
                     CourseFeedItem(course) {
                         navController.navigate("course_detail/${course.id}")
@@ -345,6 +385,7 @@ fun CoursesListScreen(navController: NavHostController, viewModel: MainViewModel
 @Composable
 fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, onSettingsClick: () -> Unit, navController: NavHostController) {
     if (user == null) return
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     Column(
         modifier = Modifier
@@ -353,32 +394,45 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(220.dp)) {
-            Box(modifier = Modifier.fillMaxWidth().height(140.dp).background(AppColors.PrimaryGradient))
-            
-            Column(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+        if (isLandscape) {
+            Row(modifier = Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(110.dp)
+                        .size(100.dp)
                         .background(MaterialTheme.colorScheme.surface, CircleShape)
                         .padding(4.dp)
                 ) {
                     Box(modifier = Modifier.fillMaxSize().background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
-                        Text(user.name.take(1).uppercase(), fontSize = 44.sp, fontWeight = FontWeight.Black, color = Color.White)
+                        Text(user.name.take(1).uppercase(), fontSize = 40.sp, fontWeight = FontWeight.Black, color = Color.White)
                     }
                 }
-                Text(user.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Level ${user.level} ${user.role.replaceFirstChar { it.uppercase() }}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(Modifier.width(24.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(user.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
+                    Text("Level ${user.level} ${user.role.replaceFirstChar { it.uppercase() }}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                IconButton(onClick = onSettingsClick, modifier = Modifier.background(Color.Black.copy(alpha = 0.1f), CircleShape)) {
+                    Icon(Icons.Default.Settings, null)
+                }
             }
-            
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color.Black.copy(alpha = 0.2f), CircleShape)
-            ) {
-                Icon(Icons.Default.Settings, null, tint = Color.White)
+        } else {
+            Box(modifier = Modifier.fillMaxWidth().height(220.dp)) {
+                Box(modifier = Modifier.fillMaxWidth().height(140.dp).background(AppColors.PrimaryGradient))
+                Column(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(modifier = Modifier.size(110.dp).background(MaterialTheme.colorScheme.surface, CircleShape).padding(4.dp)) {
+                        Box(modifier = Modifier.fillMaxSize().background(AppColors.PrimaryGradient, CircleShape), contentAlignment = Alignment.Center) {
+                            Text(user.name.take(1).uppercase(), fontSize = 44.sp, fontWeight = FontWeight.Black, color = Color.White)
+                        }
+                    }
+                    Text(user.name, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
+                    Text("Level ${user.level} ${user.role.replaceFirstChar { it.uppercase() }}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                IconButton(onClick = onSettingsClick, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color.Black.copy(alpha = 0.2f), CircleShape)) {
+                    Icon(Icons.Default.Settings, null, tint = Color.White)
+                }
             }
         }
 
@@ -392,14 +446,7 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        Text(
-            text = "Learning Hub", 
-            modifier = Modifier.padding(horizontal = 24.dp), 
-            fontWeight = FontWeight.Black, 
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 16.sp
-        )
-        
+        Text(text = "Learning Hub", modifier = Modifier.padding(horizontal = 24.dp), fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp)
         Spacer(modifier = Modifier.height(12.dp))
         
         Card(
@@ -419,17 +466,11 @@ fun ProfileScreen(user: User?, onLogout: () -> Unit, onAddCourse: () -> Unit, on
         }
         
         Spacer(modifier = Modifier.height(24.dp))
-        
-        TextButton(
-            onClick = onLogout,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-        ) {
+        TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
             Icon(Icons.AutoMirrored.Filled.Logout, null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Sign Out", fontWeight = FontWeight.Bold)
         }
-        
         Spacer(modifier = Modifier.height(40.dp))
     }
 }
@@ -471,14 +512,15 @@ fun ProfileMenuItem(icon: ImageVector, label: String, color: Color = MaterialThe
 fun LeaderboardScreen(navController: NavHostController, viewModel: MainViewModel) {
     val leaderboard by viewModel.leaderboard.collectAsState()
     val currentUser by viewModel.userProfile.collectAsState()
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Box(modifier = Modifier.fillMaxWidth().background(AppColors.PrimaryGradient).padding(24.dp)) {
+        Box(modifier = Modifier.fillMaxWidth().background(AppColors.PrimaryGradient).padding(if (isLandscape) 12.dp else 24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { navController.popBackStack() }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
                 }
-                Text("Rankings", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                Text("Rankings", color = Color.White, fontSize = if (isLandscape) 20.sp else 24.sp, fontWeight = FontWeight.Black)
             }
         }
 
@@ -548,6 +590,7 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
     val enrollmentState by viewModel.enrollmentState.collectAsState()
     val reviews by viewModel.reviews.collectAsState()
     val courseReviews = reviews[courseId] ?: emptyList()
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollState = rememberScrollState()
@@ -560,16 +603,17 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            AsyncImage(
-                model = course.thumbnailUrl,
-                contentDescription = null,
-                modifier = Modifier.fillMaxWidth().height(320.dp),
-                contentScale = ContentScale.Crop
-            )
-            
-            Box(modifier = Modifier.fillMaxWidth().height(320.dp).background(
-                Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent, Color.Black.copy(alpha = 0.4f)))
-            ))
+            if (!isLandscape) {
+                AsyncImage(
+                    model = course.thumbnailUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().height(320.dp),
+                    contentScale = ContentScale.Crop
+                )
+                Box(modifier = Modifier.fillMaxWidth().height(320.dp).background(
+                    Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent, Color.Black.copy(alpha = 0.4f)))
+                ))
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp),
@@ -593,7 +637,7 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 280.dp)
+                    .padding(top = if (isLandscape) 60.dp else 280.dp)
                     .background(
                         MaterialTheme.colorScheme.background,
                         RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
@@ -601,6 +645,23 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
                     .verticalScroll(scrollState)
                     .padding(24.dp)
             ) {
+                if (isLandscape) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(
+                            model = course.thumbnailUrl,
+                            contentDescription = null,
+                            modifier = Modifier.size(120.dp).clip(RoundedCornerShape(16.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(Modifier.width(24.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(course.title, fontSize = 24.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
+                            Text(course.subject, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(Modifier.height(24.dp))
+                }
+
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     CourseBadge(course.subject)
                     Spacer(modifier = Modifier.width(12.dp))
@@ -613,7 +674,6 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
                                 onClick = { navController.navigate("reels/${course.id}/resume") },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(12.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp),
                                 modifier = Modifier.height(40.dp)
                             ) {
                                 Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
@@ -631,18 +691,15 @@ fun CourseDetailPage(courseId: String, navController: NavHostController, viewMod
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(20.dp))
-                Text(course.title, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground, lineHeight = 34.sp)
+                if (!isLandscape) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(course.title, fontSize = 28.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground, lineHeight = 34.sp)
+                }
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     repeat(5) { index ->
-                        Icon(
-                            Icons.Default.Star, 
-                            null, 
-                            tint = if (index < 4) Color(0xFFFFB800) else Color.LightGray, 
-                            modifier = Modifier.size(16.dp)
-                        )
+                        Icon(Icons.Default.Star, null, tint = if (index < 4) Color(0xFFFFB800) else Color.LightGray, modifier = Modifier.size(16.dp))
                     }
                     Text("  ${course.rating}  •  ${course.learnersCount} enrolled", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 }
