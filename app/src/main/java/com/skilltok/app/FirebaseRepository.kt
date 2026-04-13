@@ -115,6 +115,18 @@ class FirebaseRepository {
         awaitClose { subscription.remove() }
     }
 
+    // REMOTE QUERY: Filtering courses by Rating (Requirement Satisfaction)
+    fun getHighRatedCourses(minRating: Double): Flow<List<Course>> = callbackFlow {
+        val subscription = db.collection("courses")
+            .whereGreaterThanOrEqualTo("rating", minRating)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { trySend(emptyList()); return@addSnapshotListener }
+                val courses = snapshot?.documents?.mapNotNull { it.toObject<Course>()?.copy(id = it.id) } ?: emptyList()
+                trySend(courses)
+            }
+        awaitClose { subscription.remove() }
+    }
+
     fun getCourse(courseId: String): Flow<Course?> = callbackFlow {
         val subscription = db.collection("courses").document(courseId)
             .addSnapshotListener { snapshot, error ->

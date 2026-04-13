@@ -139,6 +139,7 @@ data class LocalSavedEntity(
 
 @Dao
 interface SkillTokDao {
+    // LOCAL QUERY 1: Simple Select with WHERE
     @Query("SELECT * FROM local_user_profile WHERE id = :uid")
     fun getUserProfile(uid: String): Flow<LocalUserEntity?>
 
@@ -148,8 +149,21 @@ interface SkillTokDao {
     @Query("SELECT * FROM local_courses")
     fun getAllCourses(): Flow<List<LocalCourseEntity>>
 
+    // LOCAL QUERY 2: Use of AND operator
     @Query("SELECT * FROM local_courses WHERE title = :title AND subject = :subject LIMIT 1")
     suspend fun findByTitleAndSubject(title: String, subject: String): LocalCourseEntity?
+
+    // LOCAL QUERY 3: Use of LIKE operator for search
+    @Query("SELECT * FROM local_courses WHERE title LIKE :query OR description LIKE :query")
+    fun searchCourses(query: String): Flow<List<LocalCourseEntity>>
+
+    // LOCAL QUERY 4: Use of IN operator
+    @Query("SELECT * FROM local_courses WHERE id IN (:ids)")
+    fun getCoursesByIds(ids: List<String>): Flow<List<LocalCourseEntity>>
+
+    // LOCAL QUERY 5: Use of Comparison operator (>)
+    @Query("SELECT * FROM local_enrollments WHERE userId = :uid AND progressPercent > :minProgress")
+    fun getAdvancedProgress(uid: String, minProgress: Int): Flow<List<LocalEnrollmentEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCourse(course: LocalCourseEntity)
@@ -196,7 +210,7 @@ interface SkillTokDao {
 
 @Database(
     entities = [LocalUserEntity::class, LocalCourseEntity::class, LocalEnrollmentEntity::class, LocalCompletionEntity::class, LocalInteractionEntity::class, LocalCommentEntity::class, LocalSavedEntity::class], 
-    version = 9, // Bumping version for foreign keys addition
+    version = 10, // Bumping version for more structural queries
     exportSchema = false
 )
 abstract class SkillTokDatabase : RoomDatabase() {

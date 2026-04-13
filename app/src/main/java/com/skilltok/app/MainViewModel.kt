@@ -113,16 +113,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun setupNotificationObservers() {
-        // Observe Announcements (Course Notifications)
+        // Observe Enrolled Course Announcements
         viewModelScope.launch {
-            _notifications.collect { notificationsMap ->
-                val currentUserId = auth.currentUser?.uid ?: return@collect
-                notificationsMap.forEach { (courseId, list) ->
+            combine(_notifications, _enrollments) { notificationsMap, enrollments ->
+                val enrolledCourseIds = enrollments.map { it.courseId }.toSet()
+                notificationsMap.filterKeys { it in enrolledCourseIds }
+            }.collect { filteredNotifications ->
+                filteredNotifications.forEach { (courseId, list) ->
                     val latest = list.maxByOrNull { it.createdAt }
-                    // Only notify for very recent ones (last 30 seconds) to avoid notification spam on load
-                    if (latest != null && (System.currentTimeMillis() - latest.createdAt) < 30000) {
+                    if (latest != null && (System.currentTimeMillis() - latest.createdAt) < 20000) {
+                        val courseName = _courses.value.find { it.id == courseId }?.title ?: "Course"
                         notificationHelper.showNotification(
-                            "New Announcement",
+                            "Announcement in $courseName",
                             latest.title
                         )
                     }
@@ -130,17 +132,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Observe Forum Replies
+        // Observe Forum Replies (Thread Participation Logic)
         viewModelScope.launch {
             _forumReplies.collect { repliesMap ->
                 val currentUserId = auth.currentUser?.uid ?: return@collect
                 repliesMap.forEach { (topicId, list) ->
-                    val latest = list.maxByOrNull { it.createdAt }
-                    if (latest != null && latest.userId != currentUserId && (System.currentTimeMillis() - latest.createdAt) < 30000) {
-                        notificationHelper.showNotification(
-                            "New Forum Reply",
-                            "${latest.userName} replied to a topic you're watching"
-                        )
+                    val topic = _forumTopics.value.values.flatten().find { it.id == topicId }
+                    val userHasParticipated = topic?.userId == currentUserId || list.any { it.userId == currentUserId }
+                    
+                    if (userHasParticipated) {
+                        val latest = list.maxByOrNull { it.createdAt }
+                        if (latest != null && latest.userId != currentUserId && (System.currentTimeMillis() - latest.createdAt) < 20000) {
+                            notificationHelper.showNotification(
+                                "New reply to '${topic?.title ?: "Discussion"}'",
+                                "${latest.userName}: ${latest.text}"
+                            )
+                        }
                     }
                 }
             }
@@ -327,12 +334,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 
                 _comments.value += (lessonId to locals.map { ReelComment(it.id, it.lessonId, it.userId, it.userName, it.text, it.createdAt) })
                 
-                // Notify if a new comment from someone else appeared
-                if (previousList.isNotEmpty()) {
+                // Only notify if user has previously commented on this reel
+                val userHasCommented = previousList.any { it.userId == currentUserId }
+                
+                if (previousList.isNotEmpty() && userHasCommented) {
                     val newComment = locals.maxByOrNull { it.createdAt }
                     if (newComment != null && newComment.userId != currentUserId && (System.currentTimeMillis() - newComment.createdAt) < 5000) {
                         notificationHelper.showNotification(
-                            "New Comment",
+                            "New reply in comments",
                             "${newComment.userName}: ${newComment.text}"
                         )
                     }
@@ -600,6 +609,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 
                 _completedLessons.value += lessonId
                 awardXP(25)
+                
+                // Celebration for Course Completion
+                val completionsCount = _completedLessons.value.size
+                if (totalLessonsInCourse > 0 && completionsCount >= totalLessonsInCourse) {
+                    notificationHelper.showNotification(
+                        "Course Completed! \uD83C\uDF89",
+                        "You've finished all lessons in the course. Great job!"
+                    )
+                }
             }
         }
     }

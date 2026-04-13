@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -89,8 +90,13 @@ class MainActivity : AppCompatActivity() {
 
 @Composable
 fun SkillTokTheme(isDarkMode: Boolean = false, content: @Composable () -> Unit) {
-    val colorScheme = if (isDarkMode) {
-        darkColorScheme(
+    val context = LocalContext.current
+    val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    
+    val colorScheme = when {
+        dynamicColor && isDarkMode -> dynamicDarkColorScheme(context)
+        dynamicColor && !isDarkMode -> dynamicLightColorScheme(context)
+        isDarkMode -> darkColorScheme(
             primary = Color(0xFF6366F1),
             secondary = Color(0xFF8B5CF6),
             background = Color(0xFF020617),
@@ -98,8 +104,7 @@ fun SkillTokTheme(isDarkMode: Boolean = false, content: @Composable () -> Unit) 
             onBackground = Color.White,
             onSurface = Color.White
         )
-    } else {
-        lightColorScheme(
+        else -> lightColorScheme(
             primary = Color(0xFF6366F1),
             secondary = Color(0xFF8B5CF6),
             background = Color(0xFFF8FAFC),
@@ -205,6 +210,17 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                             scope.launch { drawerState.close() }
                         },
                         icon = { Icon(Icons.Default.Explore, null, modifier = Modifier.size(22.dp)) },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    NavigationDrawerItem(
+                        label = { Text("Advanced Search", fontSize = 14.sp, fontWeight = FontWeight.Medium) },
+                        selected = currentRoute == "search",
+                        onClick = {
+                            navController.navigate("search")
+                            scope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(22.dp)) },
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
                         shape = RoundedCornerShape(16.dp)
                     )
@@ -385,6 +401,7 @@ fun MainScreen(isDarkMode: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     composable("onboarding") { OnboardingScreen(navController, viewModel) }
                     composable("home") { HomeFeedScreen(navController, viewModel) }
                     composable("courses") { CoursesListScreen(navController, viewModel) }
+                    composable("search") { SearchDiscoveryScreen(navController, viewModel) }
                     composable("leaderboard") { LeaderboardScreen(navController, viewModel) }
                     composable("profile") {
                         ProfileScreen(
